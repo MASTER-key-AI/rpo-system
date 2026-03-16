@@ -519,10 +519,10 @@ export default function ApplicantsTableClient({ applicants }: Props) {
                         {/* V: 内定可否 */}
                         <td className="px-3 py-2 min-w-[120px]">
                             <select
-                                value={row.offered === true ? "1" : row.offered === false ? "0" : ""}
+                                value={row.offered === true ? "1" : row.offered === null ? "0" : ""}
                                 onChange={(event) => {
                                     const v = event.currentTarget.value
-                                    const nextValue = v === "" ? null : v === "1"
+                                    const nextValue = v === "1" ? true : v === "0" ? null : false
                                     updateRow(row.id, { offered: nextValue }, { offered: nextValue })
                                 }}
                                 disabled={isRowPending}
