@@ -1,14 +1,11 @@
 import { getApplicantAppliedYears, getCompanyMonthlyTotals, getCompanyYields } from "@/lib/actions/yields"
-import { getCompanyManagementList } from "@/lib/actions"
-import { getCompanyGroups, getCompanyGroupsWithMembers } from "@/lib/actions/groups"
+import { getCompanyGroupsWithMembers } from "@/lib/actions/groups"
 import { getCompanySheetMap } from "@/lib/actions/sheets"
-import { Building2, CalendarDays, Download, Filter } from "lucide-react"
+import { Building2, CalendarDays, Download, Filter, Settings2 } from "lucide-react"
 import CompaniesYieldTableClient from "./CompaniesYieldTableClient"
 import CompaniesMonthlyTotalsClient from "./CompaniesMonthlyTotalsClient"
 import CompanyContextBar from "@/components/CompanyContextBar"
 import Link from "next/link"
-import CompanyManagementClient from "./CompanyManagementClient"
-import { deleteCompanyAction, createGroupAction, deleteGroupAction, setCompanyGroupAction } from "./actions"
 
 export default async function CompaniesYieldPage({
     searchParams,
@@ -118,10 +115,8 @@ export default async function CompaniesYieldPage({
         )
     }
 
-    const [yields, managementCompanies, groups, groupsWithMembers, sheetMap] = await Promise.all([
+    const [yields, groupsWithMembers, sheetMap] = await Promise.all([
         getCompanyYields(year, month, dateType, { companyId }),
-        getCompanyManagementList(),
-        getCompanyGroups(),
         getCompanyGroupsWithMembers(),
         getCompanySheetMap(),
     ])
@@ -207,6 +202,13 @@ export default async function CompaniesYieldPage({
                     <Download className="w-3.5 h-3.5" />
                     CSVエクスポート
                 </a>
+                <Link
+                    href="/companies/manage"
+                    className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-sky-500 text-white text-[12px] font-medium hover:bg-sky-600 transition-colors duration-150 cursor-pointer"
+                >
+                    <Settings2 className="w-3.5 h-3.5" />
+                    企業グループ管理
+                </Link>
             </form>
 
             {companyId && yields.length > 0 && (
@@ -219,14 +221,6 @@ export default async function CompaniesYieldPage({
             )}
 
             <CompaniesYieldTableClient yields={yields} companyId={companyId} groups={groupsWithMembers} sheetMap={sheetMap} />
-            <CompanyManagementClient
-                companies={managementCompanies}
-                groups={groups}
-                deleteCompanyAction={deleteCompanyAction}
-                createGroupAction={createGroupAction}
-                deleteGroupAction={deleteGroupAction}
-                setCompanyGroupAction={setCompanyGroupAction}
-            />
         </div>
     )
 }
