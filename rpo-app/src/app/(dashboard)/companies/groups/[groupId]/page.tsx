@@ -3,6 +3,7 @@ import { notFound } from "next/navigation"
 import { ArrowLeft, Building2, Filter } from "lucide-react"
 import { getGroupById, getGroupMembers } from "@/lib/actions/groups"
 import { getApplicantAppliedYears, getCompanyYields } from "@/lib/actions/yields"
+import { getCompanySheetMap } from "@/lib/actions/sheets"
 import type { CompanyYieldRow } from "@/lib/actions/yields"
 import CompaniesYieldTableClient from "../../CompaniesYieldTableClient"
 
@@ -33,9 +34,12 @@ export default async function GroupDetailPage({
     }
 
     const memberIds = members.map((m) => m.id)
-    const memberYields: CompanyYieldRow[] = memberIds.length > 0
-        ? await getCompanyYields(year, month, dateType, { companyIds: memberIds })
-        : []
+    const [memberYields, sheetMap] = await Promise.all([
+        memberIds.length > 0
+            ? getCompanyYields(year, month, dateType, { companyIds: memberIds })
+            : Promise.resolve([] as CompanyYieldRow[]),
+        getCompanySheetMap(),
+    ])
 
     return (
         <div className="space-y-6">
@@ -114,7 +118,7 @@ export default async function GroupDetailPage({
                         該当する歩留まりデータがありません
                     </div>
                 ) : (
-                    <CompaniesYieldTableClient yields={memberYields} companyId="group-members" />
+                    <CompaniesYieldTableClient yields={memberYields} companyId="group-members" sheetMap={sheetMap} />
                 )}
             </div>
         </div>
