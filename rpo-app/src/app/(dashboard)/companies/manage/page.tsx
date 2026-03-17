@@ -5,6 +5,8 @@ import { getCompanyGroups } from "@/lib/actions/groups"
 import CompanyManagementClient from "../CompanyManagementClient"
 import { deleteCompanyAction, createGroupAction, deleteGroupAction, setCompanyGroupAction } from "../actions"
 
+export const dynamic = "force-dynamic"
+
 export default async function CompanyManagePage() {
     const [managementCompanies, groups] = await Promise.all([
         getCompanyManagementList(),

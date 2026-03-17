@@ -2,6 +2,8 @@ import { redirect } from "next/navigation"
 import { db, schema } from "@/db"
 import { eq } from "drizzle-orm"
 
+export const dynamic = "force-dynamic"
+
 export default async function AnytimeRedirectPage() {
     // 既存の「エニタイム」グループを検索してリダイレクト
     const anytimeGroup = await db
