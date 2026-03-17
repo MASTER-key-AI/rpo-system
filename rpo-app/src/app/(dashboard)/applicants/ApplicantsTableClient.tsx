@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { ExternalLink } from "lucide-react"
 import { useEffect, useState, useTransition } from "react"
 import { updateApplicant } from "@/lib/actions/applicant"
 
@@ -36,8 +37,15 @@ type Applicant = {
     joinedDate: string | number | Date | null
 }
 
+type SheetEntry = {
+    spreadsheetId: string
+    gid: number
+    sheetName: string | null
+}
+
 type Props = {
     applicants: Applicant[]
+    sheetMap?: Record<string, SheetEntry>
 }
 
 const ASSIGNEE_OPTIONS = ["佐藤", "迫", "照井"]
@@ -156,7 +164,7 @@ function calcAge(dateValue: string | number | Date | null | undefined) {
 
 const stickyBase = "sticky bg-card/95 backdrop-blur-sm z-10"
 
-export default function ApplicantsTableClient({ applicants }: Props) {
+export default function ApplicantsTableClient({ applicants, sheetMap = {} }: Props) {
     const [rows, setRows] = useState(applicants)
     const [birthDateInputs, setBirthDateInputs] = useState<Record<string, string>>({})
     const [pendingIds, setPendingIds] = useState<Set<string>>(new Set())
@@ -225,7 +233,20 @@ export default function ApplicantsTableClient({ applicants }: Props) {
                         </td>
                         {/* B: 会社名 (sticky) */}
                         <td className={`px-3 py-2 whitespace-nowrap text-sm left-[110px] min-w-[140px] ${stickyBase}`}>
-                            {row.companyName}
+                            <span className="inline-flex items-center gap-1">
+                                {row.companyName}
+                                {sheetMap[row.companyId] && (
+                                    <a
+                                        href={`https://docs.google.com/spreadsheets/d/${sheetMap[row.companyId].spreadsheetId}/edit#gid=${sheetMap[row.companyId].gid}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        title={`${row.companyName} のスプレッドシートを開く`}
+                                        className="inline-flex items-center justify-center shrink-0 w-5 h-5 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors duration-150"
+                                    >
+                                        <ExternalLink className="w-3.5 h-3.5" />
+                                    </a>
+                                )}
+                            </span>
                         </td>
                         {/* C: 案件名 (sticky) */}
                         <td className={`px-3 py-2 left-[250px] min-w-[140px] ${stickyBase}`}>

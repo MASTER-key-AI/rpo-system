@@ -1,0 +1,176 @@
+import { getApplicants, getCompanies } from "@/lib/actions"
+import type { ApplicantFilters } from "@/lib/actions"
+import { getCompanySheetMap } from "@/lib/actions/sheets"
+import { Search } from "lucide-react"
+import CompanyFilterSelect from "./CompanyFilterSelect"
+import ApplicantFilterBar from "./ApplicantFilterBar"
+import ApplicantsTableClient from "./ApplicantsTableClient"
+import Link from "next/link"
+
+type SearchParams = {
+    companyId?: string
+    q?: string
+    page?: string
+    assigneeName?: string
+    responseStatus?: string
+    isValidApplicant?: string
+    gender?: string
+}
+
+export default async function ApplicantsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+    const params = await searchParams;
+    const filterCompanyId = params.companyId;
+    const searchKeyword = params.q?.trim() || ""
+    const currentPage = Math.max(1, Number.parseInt(params.page || "1", 10) || 1)
+    const pageSize = 50
+
+    const filters: ApplicantFilters = {
+        companyId: filterCompanyId,
+        searchKeyword: searchKeyword || undefined,
+        assigneeName: params.assigneeName || undefined,
+        responseStatus: params.responseStatus || undefined,
+        isValidApplicant: params.isValidApplicant === "true" || params.isValidApplicant === "false" ? params.isValidApplicant : undefined,
+        gender: params.gender || undefined,
+    }
+
+    const [
+        { applicants, total, page: safeCurrentPage, totalPages },
+        companies,
+        sheetMap,
+    ] = await Promise.all([
+        getApplicants(filters, currentPage, pageSize),
+        getCompanies(),
+        getCompanySheetMap(),
+    ])
+    const totalFrom = total === 0 ? 0 : ((safeCurrentPage - 1) * pageSize) + 1
+    const totalTo = Math.min(safeCurrentPage * pageSize, total)
+    const buildPageUrl = (nextPage: number) => {
+        const query = new URLSearchParams()
+        if (searchKeyword) query.set("q", searchKeyword)
+        if (filterCompanyId) query.set("companyId", filterCompanyId)
+        if (params.assigneeName) query.set("assigneeName", params.assigneeName)
+        if (params.responseStatus) query.set("responseStatus", params.responseStatus)
+        if (params.isValidApplicant) query.set("isValidApplicant", params.isValidApplicant)
+        if (params.gender) query.set("gender", params.gender)
+        if (nextPage > 1) query.set("page", String(nextPage))
+        return `/applicants${query.toString() ? `?${query.toString()}` : ""}`
+    }
+    const prevPage = safeCurrentPage > 1 ? safeCurrentPage - 1 : null
+    const nextPage = safeCurrentPage < totalPages ? safeCurrentPage + 1 : null
+
+    return (
+        <div className="space-y-6">
+            <div className="flex items-center justify-between">
+                <div>
+                    <h1 className="text-2xl font-bold tracking-tight text-foreground">応募者管理</h1>
+                    <p className="text-muted-foreground mt-0.5 text-[13px]">選考ステータスや面接日程を管理します</p>
+                </div>
+            </div>
+
+            <div className="bg-card rounded-xl border border-border overflow-hidden" style={{ boxShadow: "var(--shadow-card)" }}>
+                <div className="px-4 py-3 border-b border-border bg-muted/30 space-y-2">
+                    <div className="flex gap-3 items-center">
+                        <form method="GET" className="relative flex-1 max-w-sm">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                            <input
+                                type="text"
+                                name="q"
+                                defaultValue={searchKeyword}
+                                placeholder="応募者を検索..."
+                                className="w-full h-9 pl-9 pr-4 rounded-lg border border-input bg-background text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring/50 transition-all duration-200"
+                            />
+                            {filterCompanyId ? <input type="hidden" name="companyId" value={filterCompanyId} /> : null}
+                            {params.assigneeName ? <input type="hidden" name="assigneeName" value={params.assigneeName} /> : null}
+                            {params.responseStatus ? <input type="hidden" name="responseStatus" value={params.responseStatus} /> : null}
+                            {params.isValidApplicant ? <input type="hidden" name="isValidApplicant" value={params.isValidApplicant} /> : null}
+                            {params.gender ? <input type="hidden" name="gender" value={params.gender} /> : null}
+                            <button type="submit" className="sr-only">検索</button>
+                        </form>
+                        <CompanyFilterSelect
+                            companies={companies}
+                            selectedCompanyId={filterCompanyId}
+                        />
+                    </div>
+                    <ApplicantFilterBar
+                        assigneeName={params.assigneeName}
+                        responseStatus={params.responseStatus}
+                        isValidApplicant={params.isValidApplicant}
+                        gender={params.gender}
+                    />
+                </div>
+
+                <div className="w-full overflow-auto max-h-[70vh]">
+                    <table className="w-full text-sm text-left whitespace-nowrap border-collapse">
+                        <thead className="sticky top-0 z-20 text-[11px] text-muted-foreground uppercase tracking-wider bg-muted/50 backdrop-blur-sm border-b border-border">
+                            <tr>
+                                {/* A-D: Sticky columns */}
+                                <th className="px-4 py-2.5 font-semibold sticky left-0 z-30 bg-muted/80 backdrop-blur-sm min-w-[110px]">応募日</th>
+                                <th className="px-4 py-2.5 font-semibold sticky left-[110px] z-30 bg-muted/80 backdrop-blur-sm min-w-[140px]">会社名</th>
+                                <th className="px-4 py-2.5 font-semibold sticky left-[250px] z-30 bg-muted/80 backdrop-blur-sm min-w-[140px]">案件名</th>
+                                <th className="px-4 py-2.5 font-semibold sticky left-[390px] z-30 bg-muted/80 backdrop-blur-sm min-w-[180px] border-r border-border/40">氏名</th>
+                                {/* E-W: Scrollable columns */}
+                                <th className="px-4 py-2.5 font-semibold">mail</th>
+                                <th className="px-4 py-2.5 font-semibold">応募職種名</th>
+                                <th className="px-4 py-2.5 font-semibold">勤務地</th>
+                                <th className="px-4 py-2.5 font-semibold">電話番号</th>
+                                <th className="px-4 py-2.5 font-semibold">年齢</th>
+                                <th className="px-4 py-2.5 font-semibold">生年月日</th>
+                                <th className="px-4 py-2.5 font-semibold">性別</th>
+                                <th className="px-4 py-2.5 font-semibold">担当者名</th>
+                                <th className="px-4 py-2.5 font-semibold">有効応募</th>
+                                <th className="px-4 py-2.5 font-semibold">対応状況</th>
+                                <th className="px-4 py-2.5 font-semibold">備考</th>
+                                <th className="px-4 py-2.5 font-semibold">次回アクション日</th>
+                                <th className="px-4 py-2.5 font-semibold">通電日</th>
+                                <th className="px-4 py-2.5 font-semibold">面接予定日</th>
+                                <th className="px-4 py-2.5 font-semibold">実施可否</th>
+                                <th className="px-4 py-2.5 font-semibold">二次/最終面接予定日</th>
+                                <th className="px-4 py-2.5 font-semibold">二次/最終実施可否</th>
+                                <th className="px-4 py-2.5 font-semibold">内定可否</th>
+                                <th className="px-4 py-2.5 font-semibold">入社日</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border/40">
+                            <ApplicantsTableClient applicants={applicants} sheetMap={sheetMap} />
+                        </tbody>
+                    </table>
+                </div>
+
+                <div className="flex items-center justify-between px-4 py-3 text-sm border-t border-border bg-muted/20">
+                    <p className="text-muted-foreground text-[13px]">
+                        {total === 0 ? "0件" : `${totalFrom}〜${totalTo}件 / 全${total}件`}
+                    </p>
+                    <div className="flex items-center gap-1.5">
+                        {prevPage ? (
+                            <Link
+                                href={buildPageUrl(prevPage)}
+                                className="inline-flex items-center justify-center rounded-lg border border-input bg-background px-3 py-1.5 text-[13px] font-medium hover:bg-muted transition-colors duration-150 cursor-pointer"
+                            >
+                                前へ
+                            </Link>
+                        ) : (
+                            <span className="inline-flex items-center justify-center rounded-lg border border-border/50 bg-muted/30 px-3 py-1.5 text-[13px] text-muted-foreground">
+                                前へ
+                            </span>
+                        )}
+                        <span className="inline-flex min-w-14 items-center justify-center rounded-lg border border-border/50 bg-background px-3 py-1.5 text-[13px] font-medium tabular-nums">
+                            {safeCurrentPage} / {totalPages}
+                        </span>
+                        {nextPage ? (
+                            <Link
+                                href={buildPageUrl(nextPage)}
+                                className="inline-flex items-center justify-center rounded-lg border border-input bg-background px-3 py-1.5 text-[13px] font-medium hover:bg-muted transition-colors duration-150 cursor-pointer"
+                            >
+                                次へ
+                            </Link>
+                        ) : (
+                            <span className="inline-flex items-center justify-center rounded-lg border border-border/50 bg-muted/30 px-3 py-1.5 text-[13px] text-muted-foreground">
+                                次へ
+                            </span>
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+}
