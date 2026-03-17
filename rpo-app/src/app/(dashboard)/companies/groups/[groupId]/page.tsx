@@ -22,19 +22,20 @@ export default async function GroupDetailPage({
     const month = Number.isInteger(parsedMonth) && parsedMonth >= 1 && parsedMonth <= 12 ? parsedMonth : undefined
     const monthOptions = Array.from({ length: 12 }, (_, index) => index + 1)
 
-    const [group, members, availableYears, allYields] = await Promise.all([
+    const [group, members, availableYears] = await Promise.all([
         getGroupById(groupId),
         getGroupMembers(groupId),
         getApplicantAppliedYears(),
-        getCompanyYields(year, month, dateType),
     ])
 
     if (!group) {
         notFound()
     }
 
-    const memberIds = new Set(members.map((m) => m.id))
-    const memberYields: CompanyYieldRow[] = allYields.filter((row) => memberIds.has(row.companyId))
+    const memberIds = members.map((m) => m.id)
+    const memberYields: CompanyYieldRow[] = memberIds.length > 0
+        ? await getCompanyYields(year, month, dateType, { companyIds: memberIds })
+        : []
 
     return (
         <div className="space-y-6">

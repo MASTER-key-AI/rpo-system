@@ -43,36 +43,22 @@ export async function getCompanyGroups(): Promise<CompanyGroupRow[]> {
 }
 
 export async function getCompanyGroupsWithMembers(): Promise<CompanyGroupWithMembers[]> {
-    const groups = await db
+    const rows = await db
         .select({
             id: schema.companyGroups.id,
             name: schema.companyGroups.name,
+            memberCompanyIds: sql<string>`coalesce(group_concat(${schema.companies.id}), '')`,
         })
         .from(schema.companyGroups)
+        .leftJoin(schema.companies, eq(schema.companies.groupId, schema.companyGroups.id))
+        .groupBy(schema.companyGroups.id, schema.companyGroups.name)
         .orderBy(schema.companyGroups.name)
         .all()
 
-    const members = await db
-        .select({
-            companyId: schema.companies.id,
-            groupId: schema.companies.groupId,
-        })
-        .from(schema.companies)
-        .where(sql`${schema.companies.groupId} IS NOT NULL`)
-        .all()
-
-    const memberMap = new Map<string, string[]>()
-    for (const m of members) {
-        if (!m.groupId) continue
-        const list = memberMap.get(m.groupId) || []
-        list.push(m.companyId)
-        memberMap.set(m.groupId, list)
-    }
-
-    return groups.map((g) => ({
-        id: g.id,
-        name: g.name,
-        memberCompanyIds: memberMap.get(g.id) || [],
+    return rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        memberCompanyIds: row.memberCompanyIds ? row.memberCompanyIds.split(",") : [],
     }))
 }
 

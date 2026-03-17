@@ -43,6 +43,13 @@
       "when": 1780003000000,
       "tag": "0017_company_groups",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1780004000000,
+      "tag": "0018_performance_indexes",
+      "breakpoints": true
     }
   ]
 }
