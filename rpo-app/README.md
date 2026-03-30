@@ -39,6 +39,7 @@ npm run dev
 
 - ヘッダー: `x-rpo-api-key`
 - サーバー側環境変数: `INBOUND_API_KEY`
+- GASプロジェクトURL: https://script.google.com/home/projects/1TyG8KbfpozlrhubsNm-jFwpRNhH7B6XZlA_XdCshdUv3Z5fbmumCWr5x/edit
 
 ## よく使うコマンド
 

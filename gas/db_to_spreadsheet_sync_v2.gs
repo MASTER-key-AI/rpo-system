@@ -71,6 +71,7 @@ var COLUMNS = [
 
 var KEY_COL = 24; // X列: _applicant_id（非表示キー列）
 var TOTAL_COLS = 24; // A-X
+var NOTES_COL = 15; // O列: 備考
 
 /* ==========================
  * エントリポイント
@@ -226,15 +227,19 @@ var SyncApp = (function () {
     // 3. ヘッダー行を書き込み（初回 or ヘッダー変更時）
     writeHeaderIfNeeded_(sheet);
 
-    // 4. データ行をクリア
+    // 4. 備考(O列)の手入力値を優先保持
+    var manualNotesByApplicantId = readExistingNotesByApplicantId_(sheet);
+    mergeManualNotes_(allRecords, manualNotesByApplicantId);
+
+    // 5. データ行をクリア
     clearDataRows_(sheet);
 
-    // 5. 全件書き込み
+    // 6. 全件書き込み
     if (allRecords.length > 0) {
       writeAllRecords_(sheet, allRecords);
     }
 
-    // 6. チェックボックスバリデーション設定
+    // 7. チェックボックスバリデーション設定
     setupCheckboxValidation_(sheet, allRecords.length);
 
     Logger.log('[INFO] 同期完了: ' + group.spreadsheetId + ' → ' + allRecords.length + '件');
@@ -314,6 +319,40 @@ var SyncApp = (function () {
       var range = sheet.getRange(CONFIG.sheet.dataStartRow, 1, lastRow - CONFIG.sheet.dataStartRow + 1, TOTAL_COLS);
       range.clearContent();
       range.clearDataValidations();
+    }
+  }
+
+  function readExistingNotesByApplicantId_(sheet) {
+    var map = {};
+    var lastRow = sheet.getLastRow();
+    if (lastRow < CONFIG.sheet.dataStartRow) return map;
+
+    var rowCount = lastRow - CONFIG.sheet.dataStartRow + 1;
+    var notes = sheet.getRange(CONFIG.sheet.dataStartRow, NOTES_COL, rowCount, 1).getValues();
+    var ids = sheet.getRange(CONFIG.sheet.dataStartRow, KEY_COL, rowCount, 1).getValues();
+
+    for (var i = 0; i < rowCount; i++) {
+      var id = String(ids[i][0] || '').trim();
+      if (!id) continue;
+      var note = String(notes[i][0] || '').trim();
+      if (!note) continue;
+      map[id] = note;
+    }
+    return map;
+  }
+
+  function mergeManualNotes_(records, manualNotesByApplicantId) {
+    if (!records || records.length === 0) return;
+    if (!manualNotesByApplicantId) return;
+
+    for (var i = 0; i < records.length; i++) {
+      var rec = records[i] || {};
+      var id = String(rec.applicantId || rec.id || '').trim();
+      if (!id) continue;
+      var manualNote = String(manualNotesByApplicantId[id] || '').trim();
+      if (!manualNote) continue;
+      // Keep manually entered sheet notes as source of truth to avoid accidental overwrite.
+      rec.notes = manualNote;
     }
   }
 

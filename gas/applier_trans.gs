@@ -5,6 +5,11 @@
  * 実行関数:
  *   - run()    : 本番（API送信 + ラベル付与）
  *   - dryRun() : 検証（送信・ラベル付与なし、ログのみ）
+ *   - runCatchUpToNewDeploy() / dryRunCatchUpToNewDeploy()
+ *       : 新デプロイ先へ「直近N日（既定30日）」を追いつき転記
+ *         ※ PROCESSED ラベル付きも対象に再送（PARSE_ERROR/API_ERROR は除外）
+ *   - runRetryApiErrorAfterFix() / dryRunRetryApiErrorAfterFix()
+ *       : APIキー修正後に API_ERROR ラベルのみを再送
  *
  * 強化ポイント:
  * - 検索クエリで「過去1週間以内」のスレッドに限定（newer_than:7d）
@@ -52,6 +57,10 @@ const APP_CONFIG = {
   response: {
     nonJsonFallback: 'No body',
   },
+
+  migration: {
+    catchUpLookbackDaysDefault: 30,
+  },
 };
 
 /* =========================
@@ -65,12 +74,113 @@ function dryRun() {
   return App.run({ dryRun: true });
 }
 
+/**
+ * 新デプロイ先へ直近データを追いつき転記する（既定30日）。
+ * 既に PROCESSED ラベルが付いたメールも再送対象に含める。
+ */
+function runCatchUpToNewDeploy() {
+  return App.run({
+    dryRun: false,
+    queryOverrides: buildCatchUpQueryOverrides_(),
+  });
+}
+
+function dryRunCatchUpToNewDeploy() {
+  return App.run({
+    dryRun: true,
+    queryOverrides: buildCatchUpQueryOverrides_(),
+  });
+}
+
+/**
+ * 任意日数で追いつき転記する。
+ * 例: runCatchUpDays(60), dryRunCatchUpDays(14)
+ */
+function runCatchUpDays(days) {
+  return App.run({
+    dryRun: false,
+    queryOverrides: buildCatchUpQueryOverrides_(days),
+  });
+}
+
+function dryRunCatchUpDays(days) {
+  return App.run({
+    dryRun: true,
+    queryOverrides: buildCatchUpQueryOverrides_(days),
+  });
+}
+
+/**
+ * APIキー不一致などを修正した後、API_ERRORラベル対象のみを再送する。
+ * 既定30日。必要に応じて runRetryApiErrorDays(60) で範囲拡張。
+ */
+function runRetryApiErrorAfterFix() {
+  return App.run({
+    dryRun: false,
+    queryOverrides: buildRetryApiErrorQueryOverrides_(),
+  });
+}
+
+function dryRunRetryApiErrorAfterFix() {
+  return App.run({
+    dryRun: true,
+    queryOverrides: buildRetryApiErrorQueryOverrides_(),
+  });
+}
+
+function runRetryApiErrorDays(days) {
+  return App.run({
+    dryRun: false,
+    queryOverrides: buildRetryApiErrorQueryOverrides_(days),
+  });
+}
+
+function dryRunRetryApiErrorDays(days) {
+  return App.run({
+    dryRun: true,
+    queryOverrides: buildRetryApiErrorQueryOverrides_(days),
+  });
+}
+
+function buildCatchUpQueryOverrides_(days) {
+  var lookback = sanitizeLookbackDays_(days, APP_CONFIG.migration.catchUpLookbackDaysDefault);
+  return {
+    newerThanDays: lookback,
+    excludeLabeled: [
+      APP_CONFIG.labels.parseError,
+      APP_CONFIG.labels.apiError,
+    ],
+  };
+}
+
+function buildRetryApiErrorQueryOverrides_(days) {
+  var lookback = sanitizeLookbackDays_(days, APP_CONFIG.migration.catchUpLookbackDaysDefault);
+  return {
+    newerThanDays: lookback,
+    includeLabeled: [
+      APP_CONFIG.labels.apiError,
+    ],
+    excludeLabeled: [
+      APP_CONFIG.labels.parseError,
+    ],
+  };
+}
+
+function sanitizeLookbackDays_(value, fallback) {
+  var n = Number(value);
+  if (isFinite(n) && n > 0) return Math.floor(n);
+  var fb = Number(fallback);
+  return (isFinite(fb) && fb > 0) ? Math.floor(fb) : 30;
+}
+
 /* =========================
  * 2) App（オーケストレーター）
  * ========================= */
 const App = (function () {
   function run(opts) {
-    var dryRun = opts.dryRun;
+    opts = opts || {};
+    var dryRun = !!opts.dryRun;
+    var queryOverrides = opts.queryOverrides || null;
     Guard.requireAdvancedGmailApi();
 
     var lock = LockService.getScriptLock();
@@ -82,7 +192,8 @@ const App = (function () {
     try {
       var labelIds = LabelService.ensureLabels();
 
-      var query = GmailQueryBuilder.build(APP_CONFIG);
+      var query = GmailQueryBuilder.build(APP_CONFIG, queryOverrides);
+      Logger.log('[' + (dryRun ? 'dryRun' : 'run') + '] queryOverrides: ' + JSON.stringify(queryOverrides || {}));
       Logger.log('[' + (dryRun ? 'dryRun' : 'run') + '] query: ' + query);
 
       var threads = GmailClient.listAllThreads(query, APP_CONFIG.pageSize);
@@ -152,8 +263,13 @@ const Guard = (function () {
  * 3) GmailQueryBuilder
  * ========================= */
 const GmailQueryBuilder = (function () {
-  function build(cfg) {
+  function build(cfg, overrides) {
     var g = cfg.gmail;
+    var o = overrides || {};
+    var newerThanDays = resolvePositiveInt_(o.newerThanDays, g.newerThanDays);
+    var includeLabeled = Array.isArray(o.includeLabeled) ? o.includeLabeled : [];
+    var excludeLabeled = Array.isArray(o.excludeLabeled) ? o.excludeLabeled : g.excludeLabeled;
+
     var parts = [
       'from:' + g.fromDomain,
       'to:' + g.toAddress,
@@ -162,15 +278,30 @@ const GmailQueryBuilder = (function () {
 
     if (g.excludeRePrefix) parts.push('-subject:"Re:"');
 
-    if (g.newerThanDays && Number(g.newerThanDays) > 0) {
-      parts.push('newer_than:' + Number(g.newerThanDays) + 'd');
+    if (newerThanDays > 0) {
+      parts.push('newer_than:' + newerThanDays + 'd');
     }
 
-    for (var i = 0; i < g.excludeLabeled.length; i++) {
-      parts.push('-label:"' + g.excludeLabeled[i] + '"');
+    for (var j = 0; j < includeLabeled.length; j++) {
+      var includeLabel = String(includeLabeled[j] || '').trim();
+      if (!includeLabel) continue;
+      parts.push('label:"' + includeLabel + '"');
+    }
+
+    for (var i = 0; i < excludeLabeled.length; i++) {
+      var excludeLabel = String(excludeLabeled[i] || '').trim();
+      if (!excludeLabel) continue;
+      parts.push('-label:"' + excludeLabel + '"');
     }
 
     return parts.join(' ');
+  }
+
+  function resolvePositiveInt_(value, fallback) {
+    var n = Number(value);
+    if (isFinite(n) && n > 0) return Math.floor(n);
+    var fb = Number(fallback);
+    return (isFinite(fb) && fb > 0) ? Math.floor(fb) : 0;
   }
 
   return { build: build };
@@ -282,7 +413,21 @@ const LabelService = (function () {
     }
   }
 
-  return { ensureLabels: ensureLabels, safeApplyLabels: safeApplyLabels };
+  function safeMarkProcessed(threadId, labelIds) {
+    try {
+      GmailClient.modifyThreadLabels(
+        threadId,
+        [labelIds.base, labelIds.processed],
+        [labelIds.apiError, labelIds.parseError]
+      );
+      return true;
+    } catch (e) {
+      Logger.log('threadId=' + threadId + ' -> MARK PROCESSED FAILED: ' + (e && e.message ? e.message : e));
+      return safeApplyLabels(threadId, [labelIds.base, labelIds.processed]);
+    }
+  }
+
+  return { ensureLabels: ensureLabels, safeApplyLabels: safeApplyLabels, safeMarkProcessed: safeMarkProcessed };
 })();
 
 /* =========================
@@ -356,7 +501,7 @@ const ThreadProcessor = (function () {
         threadId: parsed.threadId,
       });
       Logger.log('[DEBUG:ThreadProcessor] API送信成功 -> PROCESSED ラベル付与');
-      LabelService.safeApplyLabels(threadId, [labelIds.base, labelIds.processed]);
+      LabelService.safeMarkProcessed(threadId, labelIds);
       return 'OK';
     } catch (e) {
       Logger.log('[DEBUG:ThreadProcessor] API送信失敗: ' + (e && e.stack ? e.stack : e));
@@ -579,16 +724,18 @@ const IndeedParser = (function () {
  * ========================= */
 const InboundClient = (function () {
   var endpointKey = 'RPO_INBOUND_URL';
+  var endpointLegacyKey = 'RPO_API_URL';
   var apiKeyKey = 'RPO_API_KEY';
 
   function validateConfigOrThrow() {
-    var endpoint = getProperty_(endpointKey);
+    var endpointConfig = getEndpointConfig_();
+    var endpoint = endpointConfig.value;
     var apiKey = getProperty_(apiKeyKey);
 
-    Logger.log('[DEBUG:InboundClient] validateConfig: endpoint=' + (endpoint ? endpoint : '(empty)') + ', apiKey=' + (apiKey ? '***' + apiKey.slice(-4) : '(empty)'));
+    Logger.log('[DEBUG:InboundClient] validateConfig: endpoint(' + (endpointConfig.key || 'none') + ')=' + (endpoint ? endpoint : '(empty)') + ', apiKey=' + (apiKey ? '***' + apiKey.slice(-4) : '(empty)'));
 
     if (!endpoint) {
-      throw new Error('RPO_INBOUND_URL が未設定です。Script Properties に RPO_INBOUND_URL を設定してください。');
+      throw new Error('RPO_INBOUND_URL が未設定です。Script Properties に RPO_INBOUND_URL（互換: RPO_API_URL）を設定してください。');
     }
 
     if (!apiKey) {
@@ -597,11 +744,11 @@ const InboundClient = (function () {
   }
 
   function submitParsedApplication(data) {
-    var endpoint = getProperty_(endpointKey);
+    var endpoint = getEndpointConfig_().value;
     var apiKey = getProperty_(apiKeyKey);
 
     if (!endpoint || !apiKey) {
-      throw new Error('受信API設定が不正です。RPO_INBOUND_URL / RPO_API_KEY を確認してください。');
+      throw new Error('受信API設定が不正です。RPO_INBOUND_URL（互換: RPO_API_URL） / RPO_API_KEY を確認してください。');
     }
 
     var payload = {
@@ -707,6 +854,20 @@ const InboundClient = (function () {
         Utilities.sleep(waitMs2);
       }
     }
+  }
+
+  function getEndpointConfig_() {
+    var endpoint = getProperty_(endpointKey);
+    if (endpoint) {
+      return { key: endpointKey, value: endpoint };
+    }
+
+    var legacy = getProperty_(endpointLegacyKey);
+    if (legacy) {
+      return { key: endpointLegacyKey, value: legacy };
+    }
+
+    return { key: '', value: '' };
   }
 
   return { validateConfigOrThrow: validateConfigOrThrow, submitParsedApplication: submitParsedApplication };

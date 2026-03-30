@@ -291,6 +291,7 @@ function mapApplicantToRecord_(row: {
     joined: boolean | null
 }) {
     const birthDate = normalizeDate_(row.birthDate)
+    const age = resolveAge_(row.age, row.birthDate)
 
     const validApply = boolTo01_(row.isValidApplicant)
     const absent = boolTo01_(row.primaryNoShow || row.secNoShow || row.finalNoShow)
@@ -331,7 +332,7 @@ function mapApplicantToRecord_(row: {
         caseName: row.caseName || "",
         appliedJob: row.appliedJob || "",
         appliedLocation: row.appliedLocation || "",
-        age: row.age ?? null,
+        age,
         notes: row.notes || "",
         assigneeName: row.assigneeName || "",
         responseStatus: row.responseStatus || "",
@@ -355,6 +356,31 @@ function mapApplicantToRecord_(row: {
         joined,
         left: 0,
     }
+}
+
+function resolveAge_(age: number | null, birthDateRaw: string | number | Date | null): number | null {
+    if (typeof age === "number" && Number.isFinite(age) && age >= 0) {
+        return Math.floor(age)
+    }
+
+    if (!birthDateRaw) {
+        return null
+    }
+
+    const birthDate = birthDateRaw instanceof Date ? birthDateRaw : new Date(birthDateRaw)
+    if (Number.isNaN(birthDate.getTime())) {
+        return null
+    }
+
+    const now = new Date()
+    let resolved = now.getFullYear() - birthDate.getFullYear()
+    const monthDiff = now.getMonth() - birthDate.getMonth()
+    const dayDiff = now.getDate() - birthDate.getDate()
+    if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
+        resolved -= 1
+    }
+
+    return resolved >= 0 ? resolved : null
 }
 
 function buildNextCursor_(

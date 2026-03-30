@@ -1,4 +1,4 @@
-import { getApplicantAppliedYears, getCompanyMonthlyTotals, getCompanyYields } from "@/lib/actions/yields"
+import { getApplicantAppliedYears, getCompanyMonthlyTotals, getCompanyYields, getCompanyCaseYields } from "@/lib/actions/yields"
 import { getCompanyGroupsWithMembers } from "@/lib/actions/groups"
 import { getCompanySheetMap } from "@/lib/actions/sheets"
 import { Building2, CalendarDays, Download, Filter, Settings2 } from "lucide-react"
@@ -115,10 +115,11 @@ export default async function CompaniesYieldPage({
         )
     }
 
-    const [yields, groupsWithMembers, sheetMap] = await Promise.all([
+    const [yields, groupsWithMembers, sheetMap, caseYields] = await Promise.all([
         getCompanyYields(year, month, dateType, { companyId }),
         getCompanyGroupsWithMembers(),
         getCompanySheetMap(),
+        getCompanyCaseYields(year, month, dateType, { companyId }),
     ])
 
     const csvParams = new URLSearchParams()
@@ -220,7 +221,7 @@ export default async function CompaniesYieldPage({
                 />
             )}
 
-            <CompaniesYieldTableClient yields={yields} companyId={companyId} groups={groupsWithMembers} sheetMap={sheetMap} />
+            <CompaniesYieldTableClient yields={yields} companyId={companyId} groups={groupsWithMembers} sheetMap={sheetMap} caseYields={caseYields} />
         </div>
     )
 }

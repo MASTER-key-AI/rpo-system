@@ -9,9 +9,11 @@ type CompanyMonthlyTotalRow = {
     validApplicants: number
     connectedApplicantCount: number
     notConnectedCount: number
+    phoneAppointmentCount: number
     interviewScheduledCount: number
     interviewConductedCount: number
     offered: number
+    offerPendingCount: number
     joined: number
     preInterviewDeclinedCount: number
     offerDeclined: number
@@ -68,9 +70,11 @@ export default function CompaniesMonthlyTotalsClient({ rows, year, month }: Prop
                 acc.validApplicants += row.validApplicants
                 acc.connectedApplicantCount += row.connectedApplicantCount
                 acc.notConnectedCount += row.notConnectedCount
+                acc.phoneAppointmentCount += row.phoneAppointmentCount
                 acc.interviewScheduledCount += row.interviewScheduledCount
                 acc.interviewConductedCount += row.interviewConductedCount
                 acc.offered += row.offered
+                acc.offerPendingCount += row.offerPendingCount
                 acc.joined += row.joined
                 acc.preInterviewDeclinedCount += row.preInterviewDeclinedCount
                 acc.offerDeclined += row.offerDeclined
@@ -82,9 +86,11 @@ export default function CompaniesMonthlyTotalsClient({ rows, year, month }: Prop
                 validApplicants: 0,
                 connectedApplicantCount: 0,
                 notConnectedCount: 0,
+                phoneAppointmentCount: 0,
                 interviewScheduledCount: 0,
                 interviewConductedCount: 0,
                 offered: 0,
+                offerPendingCount: 0,
                 joined: 0,
                 preInterviewDeclinedCount: 0,
                 offerDeclined: 0,
@@ -111,9 +117,11 @@ export default function CompaniesMonthlyTotalsClient({ rows, year, month }: Prop
         { label: "有効応募数", value: total.validApplicants, tone: "info" },
         { label: "通電数", value: total.connectedApplicantCount, tone: "default" },
         { label: "不通数", value: total.notConnectedCount, tone: "muted" },
+        { label: "電話予定数", value: total.phoneAppointmentCount, tone: "default" },
         { label: "面接設定数", value: total.interviewScheduledCount, tone: "default" },
         { label: "面接実施数", value: total.interviewConductedCount, tone: "success" },
         { label: "内定数", value: total.offered, tone: "success" },
+        { label: "内定承諾待ち", value: total.offerPendingCount, tone: "warning" },
         { label: "入社数", value: total.joined, tone: "success" },
     ]
 
@@ -171,9 +179,11 @@ export default function CompaniesMonthlyTotalsClient({ rows, year, month }: Prop
                                 <th className="px-3 py-3">有効応募数</th>
                                 <th className="px-3 py-3">通電数</th>
                                 <th className="px-3 py-3">不通数</th>
+                                <th className="px-3 py-3">電話予定数</th>
                                 <th className="px-3 py-3">面接設定数</th>
                                 <th className="px-3 py-3">面接実施数</th>
                                 <th className="px-3 py-3">内定数</th>
+                                <th className="px-3 py-3">内定承諾待ち</th>
                                 <th className="px-3 py-3">入社数</th>
                                 <th className="px-3 py-3">通電率</th>
                                 <th className="px-3 py-3">有効応募からの面接設定率</th>
@@ -188,7 +198,7 @@ export default function CompaniesMonthlyTotalsClient({ rows, year, month }: Prop
                         <tbody>
                             {filteredRows.length === 0 ? (
                                 <tr>
-                                    <td colSpan={18} className="px-4 py-8">
+                                    <td colSpan={20} className="px-4 py-8">
                                         <div className="rounded-xl border border-dashed border-border/80 bg-muted/20 p-4 text-sm text-muted-foreground">
                                             <p className="font-semibold">表示対象のデータがありません。</p>
                                             <p className="mt-1 text-xs">
@@ -206,9 +216,11 @@ export default function CompaniesMonthlyTotalsClient({ rows, year, month }: Prop
                                         <td className="px-3 py-2">{row.validApplicants}</td>
                                         <td className="px-3 py-2">{row.connectedApplicantCount}</td>
                                         <td className="px-3 py-2">{row.notConnectedCount}</td>
+                                        <td className="px-3 py-2">{row.phoneAppointmentCount}</td>
                                         <td className="px-3 py-2">{row.interviewScheduledCount}</td>
                                         <td className="px-3 py-2">{row.interviewConductedCount}</td>
                                         <td className="px-3 py-2">{row.offered}</td>
+                                        <td className="px-3 py-2">{row.offerPendingCount}</td>
                                         <td className="px-3 py-2">{row.joined}</td>
                                         <td className="px-3 py-2">{row.connectedApplicantRate}</td>
                                         <td className="px-3 py-2">{row.interviewScheduledRate}</td>

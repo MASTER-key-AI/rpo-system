@@ -1,8 +1,9 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo } from "react"
-import { ExternalLink } from "lucide-react"
+import { useMemo, useState } from "react"
+import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react"
+import type { CaseYieldRow } from "@/lib/actions/yields"
 
 type CompanyYieldRow = {
     companyId: string
@@ -13,6 +14,7 @@ type CompanyYieldRow = {
     validApplicantRate: string
     connectedApplicantCount: number
     notConnectedCount: number
+    phoneAppointmentCount: number
     docDeclined: number
     docRejectedMK: number
     docRejectedClient: number
@@ -37,6 +39,7 @@ type CompanyYieldRow = {
     finalDeclinedAfter: number
     finalRejected: number
     offered: number
+    offerPendingCount: number
     offerDeclined: number
     joined: number
     connectedApplicantRate: string
@@ -47,6 +50,7 @@ type CompanyYieldRow = {
     preInterviewDeclineRate: string
     offerDeclineRate: string
 }
+
 
 type CompanyGroupWithMembers = {
     id: string
@@ -60,11 +64,13 @@ type SheetEntry = {
     sheetName: string | null
 }
 
+
 type Props = {
     yields: CompanyYieldRow[]
     companyId?: string
     groups?: CompanyGroupWithMembers[]
     sheetMap?: Record<string, SheetEntry>
+    caseYields?: CaseYieldRow[]
 }
 
 type DisplayRow =
@@ -82,6 +88,7 @@ const COLUMNS: Column[] = [
     { key: "uniqueApplicants", label: "ユニーク応募数" },
     { key: "validApplicants", label: "有効応募数" },
     { key: "notConnectedCount", label: "不通数" },
+    { key: "phoneAppointmentCount", label: "電話予定数" },
     { key: "connectedApplicantCount", label: "通電数" },
     { key: "docDeclined", label: "書類選考中辞退数" },
     { key: "docRejectedMK", label: "書類不採用(MK判断)" },
@@ -107,6 +114,7 @@ const COLUMNS: Column[] = [
     { key: "finalDeclinedAfter", label: "最終面接後辞退数" },
     { key: "finalRejected", label: "最終面接不採用数" },
     { key: "offered", label: "内定数" },
+    { key: "offerPendingCount", label: "内定承諾待ち" },
     { key: "offerDeclined", label: "内定後/入社前辞退数" },
     { key: "joined", label: "入社数" },
     { key: "connectedApplicantRate", label: "有効応募からの通電率" },
@@ -125,6 +133,7 @@ const NUMERIC_KEYS: Array<keyof CompanyYieldRow> = [
     "validApplicants",
     "connectedApplicantCount",
     "notConnectedCount",
+    "phoneAppointmentCount",
     "docDeclined",
     "docRejectedMK",
     "docRejectedClient",
@@ -149,11 +158,36 @@ const NUMERIC_KEYS: Array<keyof CompanyYieldRow> = [
     "finalDeclinedAfter",
     "finalRejected",
     "offered",
+    "offerPendingCount",
     "offerDeclined",
     "joined",
 ]
 
-export default function CompaniesYieldTableClient({ yields, companyId, groups = [], sheetMap = {} }: Props) {
+export default function CompaniesYieldTableClient({ yields, companyId, groups = [], sheetMap = {}, caseYields = [] }: Props) {
+    const [expandedCompanyIds, setExpandedCompanyIds] = useState<Set<string>>(new Set())
+
+    const caseYieldsByCompany = useMemo(() => {
+        const map = new Map<string, CaseYieldRow[]>()
+        for (const row of caseYields) {
+            const existing = map.get(row.companyId) ?? []
+            existing.push(row)
+            map.set(row.companyId, existing)
+        }
+        return map
+    }, [caseYields])
+
+    const toggleCompany = (id: string) => {
+        setExpandedCompanyIds((prev) => {
+            const next = new Set(prev)
+            if (next.has(id)) {
+                next.delete(id)
+            } else {
+                next.add(id)
+            }
+            return next
+        })
+    }
+
     const displayRows = useMemo<DisplayRow[]>(() => {
         if (companyId) {
             return yields
@@ -205,7 +239,7 @@ export default function CompaniesYieldTableClient({ yields, companyId, groups = 
                 <table className="w-full whitespace-nowrap text-sm">
                     <thead className="sticky top-0 z-20 bg-muted/40 border-b border-border">
                         <tr>
-                            <th className="px-4 py-3 text-left sticky left-0 z-30 bg-muted/95 backdrop-blur min-w-[200px] border-r border-border/50">企業名</th>
+                            <th className="px-4 py-3 text-left sticky left-0 z-30 bg-muted/95 backdrop-blur min-w-[220px] border-r border-border/50">企業名 / 案件名</th>
                             {COLUMNS.map((column) => (
                                 <th key={column.key} className="px-3 py-3 text-center">
                                     {column.label}
@@ -222,46 +256,86 @@ export default function CompaniesYieldTableClient({ yields, companyId, groups = 
                                         ? "bg-amber-50/60 font-semibold"
                                         : "hover:bg-muted/30"
 
+                            const hasCases = item.type === "normal" && (caseYieldsByCompany.get(item.row.companyId)?.length ?? 0) > 0
+                            const isExpanded = expandedCompanyIds.has(item.row.companyId)
+                            const caseRows = hasCases ? (caseYieldsByCompany.get(item.row.companyId) ?? []) : []
+
                             return (
-                                <tr
-                                    key={`${item.type}-${item.row.companyId}-${item.row.companyName}`}
-                                    className={`${baseClass} border-b border-border/50`}
-                                >
-                                    <td className="px-4 py-2 sticky left-0 z-10 bg-background/95 backdrop-blur min-w-[200px] border-r border-border/50">
-                                        {item.type === "group-parent" ? (
-                                            <Link href={`/companies/groups/${item.groupId}`} className="text-primary hover:underline">
-                                                {item.row.companyName}
-                                            </Link>
-                                        ) : item.type === "summary" ? (
-                                            <span>{item.row.companyName}</span>
-                                        ) : (
-                                            <span className="inline-flex items-center gap-1">
-                                                <Link
-                                                    href={`/applicants?companyId=${item.row.companyId}`}
-                                                    className="text-primary hover:underline"
-                                                >
+                                <>
+                                    <tr
+                                        key={`${item.type}-${item.row.companyId}-${item.row.companyName}`}
+                                        className={`${baseClass} border-b border-border/50`}
+                                    >
+                                        <td className="px-4 py-2 sticky left-0 z-10 bg-background/95 backdrop-blur min-w-[220px] border-r border-border/50">
+                                            {item.type === "group-parent" ? (
+                                                <Link href={`/companies/groups/${item.groupId}`} className="text-primary hover:underline">
                                                     {item.row.companyName}
                                                 </Link>
-                                                {sheetMap[item.row.companyId] && (
-                                                    <a
-                                                        href={`https://docs.google.com/spreadsheets/d/${sheetMap[item.row.companyId].spreadsheetId}/edit#gid=${sheetMap[item.row.companyId].gid}`}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        title={`${item.row.companyName} のスプレッドシートを開く`}
-                                                        className="inline-flex items-center justify-center shrink-0 w-5 h-5 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors duration-150"
+                                            ) : item.type === "summary" ? (
+                                                <span>{item.row.companyName}</span>
+                                            ) : (
+                                                <span className="inline-flex items-center gap-1">
+                                                    {hasCases ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => toggleCompany(item.row.companyId)}
+                                                            className="shrink-0 inline-flex items-center justify-center w-5 h-5 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors duration-150"
+                                                            title={isExpanded ? "案件名を折りたたむ" : "案件名を展開する"}
+                                                        >
+                                                            {isExpanded
+                                                                ? <ChevronDown className="w-3.5 h-3.5" />
+                                                                : <ChevronRight className="w-3.5 h-3.5" />
+                                                            }
+                                                        </button>
+                                                    ) : (
+                                                        <span className="shrink-0 w-5" />
+                                                    )}
+                                                    <Link
+                                                        href={`/applicants?companyId=${item.row.companyId}`}
+                                                        className="text-primary hover:underline"
                                                     >
-                                                        <ExternalLink className="w-3.5 h-3.5" />
-                                                    </a>
-                                                )}
-                                            </span>
-                                        )}
-                                    </td>
-                                    {COLUMNS.map((column) => (
-                                        <td key={`${item.row.companyId}-${column.key}`} className="px-3 py-2 text-center">
-                                            {String(item.row[column.key])}
+                                                        {item.row.companyName}
+                                                    </Link>
+                                                    {sheetMap[item.row.companyId] && (
+                                                        <a
+                                                            href={`https://docs.google.com/spreadsheets/d/${sheetMap[item.row.companyId].spreadsheetId}/edit#gid=${sheetMap[item.row.companyId].gid}`}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            title={`${item.row.companyName} のスプレッドシートを開く`}
+                                                            className="inline-flex items-center justify-center shrink-0 w-5 h-5 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors duration-150"
+                                                        >
+                                                            <ExternalLink className="w-3.5 h-3.5" />
+                                                        </a>
+                                                    )}
+                                                </span>
+                                            )}
                                         </td>
+                                        {COLUMNS.map((column) => (
+                                            <td key={`${item.row.companyId}-${column.key}`} className="px-3 py-2 text-center">
+                                                {String(item.row[column.key])}
+                                            </td>
+                                        ))}
+                                    </tr>
+                                    {hasCases && isExpanded && caseRows.map((caseRow) => (
+                                        <tr
+                                            key={`case-${item.row.companyId}-${caseRow.caseName}`}
+                                            className="border-b border-border/30 bg-sky-50/40 hover:bg-sky-50/70"
+                                        >
+                                            <td className="py-1.5 sticky left-0 z-10 bg-sky-50/60 backdrop-blur min-w-[220px] border-r border-border/30">
+                                                <span className="inline-flex items-center gap-1.5 pl-8 pr-2">
+                                                    <span className="text-[11px] font-medium text-sky-700 bg-sky-100 rounded px-1.5 py-0.5 max-w-[160px] truncate" title={caseRow.caseName}>
+                                                        {caseRow.caseName}
+                                                    </span>
+                                                </span>
+                                            </td>
+                                            {COLUMNS.map((column) => (
+                                                <td key={`case-${item.row.companyId}-${caseRow.caseName}-${column.key}`} className="px-3 py-1.5 text-center text-[12px] text-muted-foreground">
+                                                    {String((caseRow as Record<string, unknown>)[column.key] ?? "")}
+                                                </td>
+                                            ))}
+                                        </tr>
                                     ))}
-                                </tr>
+                                </>
                             )
                         })}
                     </tbody>
@@ -290,6 +364,7 @@ function createSummaryRow(rows: CompanyYieldRow[], companyName: string): Company
             validApplicantRate: "0.0% (0/0)",
             connectedApplicantCount: 0,
             notConnectedCount: 0,
+            phoneAppointmentCount: 0,
             docDeclined: 0,
             docRejectedMK: 0,
             docRejectedClient: 0,
@@ -314,6 +389,7 @@ function createSummaryRow(rows: CompanyYieldRow[], companyName: string): Company
             finalDeclinedAfter: 0,
             finalRejected: 0,
             offered: 0,
+            offerPendingCount: 0,
             offerDeclined: 0,
             joined: 0,
             connectedApplicantRate: "0.0% (0/0)",
@@ -330,6 +406,7 @@ function createSummaryRow(rows: CompanyYieldRow[], companyName: string): Company
     total.interviewScheduledRate = toRate(total.interviewScheduledCount, total.validApplicants)
     total.interviewConductedRate = toRate(total.interviewConductedCount, total.validApplicants)
     total.offerRate = toRate(total.offered, total.validApplicants)
+    total.offerPendingCount = Math.max(0, total.offered - (total.offerDeclined + total.joined))
     total.joinRate = toRate(total.joined, total.validApplicants)
     total.preInterviewDeclineRate = toRate(total.interviewDeclinedBefore, total.interviewScheduledCount)
     total.offerDeclineRate = toRate(total.offerDeclined, total.offered)

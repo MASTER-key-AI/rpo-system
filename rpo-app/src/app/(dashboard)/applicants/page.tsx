@@ -5,11 +5,13 @@ import { Search } from "lucide-react"
 import CompanyFilterSelect from "./CompanyFilterSelect"
 import ApplicantFilterBar from "./ApplicantFilterBar"
 import ApplicantsTableClient from "./ApplicantsTableClient"
+import ApplicantsCsvActions from "./ApplicantsCsvActions"
 import CompanyContextBar from "@/components/CompanyContextBar"
 import Link from "next/link"
 
 type SearchParams = {
     companyId?: string
+    companyIds?: string
     q?: string
     page?: string
     assigneeName?: string
@@ -20,13 +22,26 @@ type SearchParams = {
 
 export default async function ApplicantsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
     const params = await searchParams;
-    const filterCompanyId = params.companyId;
+    const legacyCompanyId = params.companyId?.trim() || ""
+    const selectedCompanyIds = Array.from(
+        new Set(
+            [
+                ...((params.companyIds || "")
+                    .split(",")
+                    .map((id) => id.trim())
+                    .filter((id) => id.length > 0)),
+                ...(legacyCompanyId ? [legacyCompanyId] : []),
+            ],
+        ),
+    )
+    const singleSelectedCompanyId = selectedCompanyIds.length === 1 ? selectedCompanyIds[0] : undefined
     const searchKeyword = params.q?.trim() || ""
     const currentPage = Math.max(1, Number.parseInt(params.page || "1", 10) || 1)
     const pageSize = 50
 
     const filters: ApplicantFilters = {
-        companyId: filterCompanyId,
+        companyId: singleSelectedCompanyId,
+        companyIds: selectedCompanyIds.length > 1 ? selectedCompanyIds : undefined,
         searchKeyword: searchKeyword || undefined,
         assigneeName: params.assigneeName || undefined,
         responseStatus: params.responseStatus || undefined,
@@ -45,10 +60,11 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
     ])
     const totalFrom = total === 0 ? 0 : ((safeCurrentPage - 1) * pageSize) + 1
     const totalTo = Math.min(safeCurrentPage * pageSize, total)
+    const companyIdsParamValue = selectedCompanyIds.join(",")
     const buildPageUrl = (nextPage: number) => {
         const query = new URLSearchParams()
         if (searchKeyword) query.set("q", searchKeyword)
-        if (filterCompanyId) query.set("companyId", filterCompanyId)
+        if (companyIdsParamValue) query.set("companyIds", companyIdsParamValue)
         if (params.assigneeName) query.set("assigneeName", params.assigneeName)
         if (params.responseStatus) query.set("responseStatus", params.responseStatus)
         if (params.isValidApplicant) query.set("isValidApplicant", params.isValidApplicant)
@@ -58,9 +74,17 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
     }
     const prevPage = safeCurrentPage > 1 ? safeCurrentPage - 1 : null
     const nextPage = safeCurrentPage < totalPages ? safeCurrentPage + 1 : null
+    const exportQuery = new URLSearchParams()
+    if (searchKeyword) exportQuery.set("q", searchKeyword)
+    if (companyIdsParamValue) exportQuery.set("companyIds", companyIdsParamValue)
+    if (params.assigneeName) exportQuery.set("assigneeName", params.assigneeName)
+    if (params.responseStatus) exportQuery.set("responseStatus", params.responseStatus)
+    if (params.isValidApplicant) exportQuery.set("isValidApplicant", params.isValidApplicant)
+    if (params.gender) exportQuery.set("gender", params.gender)
+    const exportHref = `/api/applicants/csv${exportQuery.toString() ? `?${exportQuery.toString()}` : ""}`
 
-    const filterCompanyName = filterCompanyId
-        ? companies.find((c) => c.id === filterCompanyId)?.name ?? null
+    const filterCompanyName = singleSelectedCompanyId
+        ? companies.find((c) => c.id === singleSelectedCompanyId)?.name ?? null
         : null
 
     return (
@@ -72,11 +96,11 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
                 </div>
             </div>
 
-            {filterCompanyId && filterCompanyName && (
+            {singleSelectedCompanyId && filterCompanyName && (
                 <CompanyContextBar
-                    companyId={filterCompanyId}
+                    companyId={singleSelectedCompanyId}
                     companyName={filterCompanyName}
-                    sheetEntry={sheetMap[filterCompanyId]}
+                    sheetEntry={sheetMap[singleSelectedCompanyId]}
                     activePage="applicants"
                 />
             )}
@@ -90,10 +114,10 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
                                 type="text"
                                 name="q"
                                 defaultValue={searchKeyword}
-                                placeholder="応募者を検索..."
+                                placeholder="全項目を検索..."
                                 className="w-full h-9 pl-9 pr-4 rounded-lg border border-input bg-background text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring/50 transition-all duration-200"
                             />
-                            {filterCompanyId ? <input type="hidden" name="companyId" value={filterCompanyId} /> : null}
+                            {companyIdsParamValue ? <input type="hidden" name="companyIds" value={companyIdsParamValue} /> : null}
                             {params.assigneeName ? <input type="hidden" name="assigneeName" value={params.assigneeName} /> : null}
                             {params.responseStatus ? <input type="hidden" name="responseStatus" value={params.responseStatus} /> : null}
                             {params.isValidApplicant ? <input type="hidden" name="isValidApplicant" value={params.isValidApplicant} /> : null}
@@ -102,8 +126,9 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
                         </form>
                         <CompanyFilterSelect
                             companies={companies}
-                            selectedCompanyId={filterCompanyId}
+                            selectedCompanyIds={selectedCompanyIds}
                         />
+                        <ApplicantsCsvActions exportHref={exportHref} />
                     </div>
                     <ApplicantFilterBar
                         assigneeName={params.assigneeName}
@@ -111,6 +136,9 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
                         isValidApplicant={params.isValidApplicant}
                         gender={params.gender}
                     />
+                    <p className="text-[11px] text-muted-foreground">
+                        キーワード検索は氏名・企業名・案件名・連絡先・担当者・ステータス・各日付項目を対象にしています。
+                    </p>
                 </div>
 
                 <div className="w-full overflow-auto max-h-[70vh]">

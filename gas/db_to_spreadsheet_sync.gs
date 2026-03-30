@@ -52,7 +52,7 @@ const DB_SHEET_SYNC_CONFIG = {
       furigana: 12, // L
       phone: 13, // M
       email: 14, // N
-      address: 15, // O
+      notes: 15, // O (備考)
       gender: 16, // P
       birthDate: 17, // Q
       statusStart: 20, // T
@@ -71,7 +71,7 @@ const DB_SHEET_SYNC_COMPANIES = [
   { code: 'company_002', name: 'TKC株式会社/YMD株式会社', spreadsheetId: '1paHNHLJjBxBIgbY1ki7IoocqKBKpFGmlDvT4ormpOl4', gid: 465742923, enabled: true },
   { code: 'company_003', name: 'AYKサービス株式会社', spreadsheetId: '1mCCVIsDxYsv0VNV4yJ3-o4hQ7gyt-ic6mZ_xqdNZD_c', gid: 465742923, enabled: true },
   { code: 'company_004', name: '株式会社ULC', spreadsheetId: '1kDs6q2B1SgXKzYszN5tpV23CKaj8hyO6k5WGLYN1kvE', gid: 465742923, enabled: true },
-  { code: 'company_005', name: '株式会社ハーツ', spreadsheetId: '1vnPNPiaBEBR7-mbBmk8pXvYuAjyTrTDsP7GdX5ukB9k', gid: 465742923, enabled: true },
+  { code: 'company_005', name: '株式会社ハーツ', spreadsheetId: '11h3bQXaU0oTIeMTlUrVUpr5qZyx1cadP0UV10RVUhhs', gid: 465742923, enabled: true },
   { code: 'company_006', name: '株式会社前田営工センター', spreadsheetId: '1lnBf9iw-qAicp_ATetjVPaBIVz8NFGHD5gyjdloV6w0', gid: 465742923, enabled: true },
   { code: 'company_007', name: '株式会社有明', spreadsheetId: '1-1DWyCMHRgmfSUNTd_xCGGSyA_g0ENHPeqZP1EVbju8', gid: 465742923, enabled: true },
   { code: 'company_008', name: 'ミナミ住設', spreadsheetId: '1LgbrIA6oGUPA9E8QAgzL2kgQJlJ6yAzGi7KVQd8R3oQ', gid: 465742923, enabled: true },
@@ -904,7 +904,7 @@ const SheetSyncClient = (function () {
       normalizeComparableText_(rowValues[c.furigana - 1]),
       normalizePhoneForDiff_(rowValues[c.phone - 1]),
       normalizeEmailForMatch_(rowValues[c.email - 1]),
-      normalizeComparableText_(rowValues[c.address - 1]),
+      normalizeComparableText_(rowValues[c.notes - 1]),
       normalizeComparableText_(rowValues[c.gender - 1]),
       normalizeBirthDateForDiff_(rowValues[c.birthDate - 1]),
     ];
@@ -913,7 +913,7 @@ const SheetSyncClient = (function () {
       normalizeComparableText_(rec.furigana),
       normalizePhoneForDiff_(rec.phone),
       normalizeEmailForMatch_(rec.email),
-      normalizeComparableText_(rec.address),
+      normalizeComparableText_(rec.notes),
       normalizeComparableText_(rec.gender),
       normalizeBirthDateForDiff_(rec.birthDate),
     ];
@@ -998,7 +998,7 @@ const SheetSyncClient = (function () {
       var rec = item.record;
       var okBasic = safeSetValues_(
         sheet.getRange(row, c.name, 1, c.birthDate - c.name + 1),
-        [[rec.name, rec.furigana, rec.phone, rec.email, rec.address, rec.gender, rec.birthDate]],
+        [[rec.name, rec.furigana, rec.phone, rec.email, rec.notes, rec.gender, rec.birthDate]],
         'update KQ row=' + row
       );
       var okStatus = safeSetValues_(
@@ -1038,7 +1038,7 @@ const SheetSyncClient = (function () {
 
     for (var i = 0; i < records.length; i++) {
       var rec = records[i];
-      basicData.push([rec.name, rec.furigana, rec.phone, rec.email, rec.address, rec.gender, rec.birthDate]);
+      basicData.push([rec.name, rec.furigana, rec.phone, rec.email, rec.notes, rec.gender, rec.birthDate]);
       statusData.push(rec.statusValues);
       keyData.push([rec.applicantId]);
     }
@@ -1132,7 +1132,7 @@ const RecordMapper = (function () {
     email: ['email', 'mail', 'mailAddress', 'mail_address', 'メール', 'メールアドレス'],
     furigana: ['furigana', 'kana', 'ruby', 'nameKana', 'name_kana', 'ふりがな'],
     phone: ['phone', 'phoneNumber', 'phone_number', 'tel', 'telephone', '電話番号'],
-    address: ['address', 'fullAddress', 'full_address', '住所'],
+    notes: ['notes', 'memo', '備考', 'メモ'],
     gender: ['gender', 'sex', '性別'],
     birthDate: ['birthDate', 'birth_date', 'birthday', 'dateOfBirth', 'date_of_birth', '生年月日'],
     updatedAt: ['updatedAt', 'updated_at'],
@@ -1171,7 +1171,7 @@ const RecordMapper = (function () {
       email: normalizeEmailForMatch_(pickValue_(raw, FIELD_KEYS.email)),
       furigana: asString_(pickValue_(raw, FIELD_KEYS.furigana)),
       phone: normalizePhone_(pickValue_(raw, FIELD_KEYS.phone)),
-      address: asString_(pickValue_(raw, FIELD_KEYS.address)),
+      notes: asString_(pickValue_(raw, FIELD_KEYS.notes)),
       gender: asString_(pickValue_(raw, FIELD_KEYS.gender)),
       birthDate: normalizeBirthDate_(pickValue_(raw, FIELD_KEYS.birthDate)),
       statusValues: [
@@ -1382,4 +1382,95 @@ function findSheetByGid_(spreadsheet, gid) {
     }
   }
   return null;
+}
+
+
+/* ============================
+ * Two-way Sync (Notes) Trigger
+ * ============================ */
+
+function setupOnEditTriggersAll() {
+  var companies = getAllCompanyConfigs_();
+  var count = 0;
+  for (var i = 0; i < companies.length; i++) {
+    var co = companies[i];
+    if (!co.spreadsheetId) continue;
+    try {
+      var triggers = ScriptApp.getUserTriggers(SpreadsheetApp.openById(co.spreadsheetId));
+      var hasTrigger = false;
+      for (var j = 0; j < triggers.length; j++) {
+        if (triggers[j].getHandlerFunction() === 'onEditNotesSync') {
+          hasTrigger = true;
+          break;
+        }
+      }
+      if (!hasTrigger) {
+        ScriptApp.newTrigger('onEditNotesSync')
+          .forSpreadsheet(co.spreadsheetId)
+          .onEdit()
+          .create();
+        count++;
+        Logger.log('Created onEditNotesSync trigger for ' + co.name);
+      }
+    } catch (e) {
+      Logger.log('[WARN] Failed to create trigger for ' + co.name + ': ' + errorToMessage_(e));
+    }
+  }
+  Logger.log('Finished setting up triggers. New triggers created: ' + count);
+}
+
+function onEditNotesSync(e) {
+  if (!e || !e.range) return;
+  var sheet = e.range.getSheet();
+  if (sheet.getName() !== DB_SHEET_SYNC_CONFIG.sheet.targetSheetName) return;
+
+  var row = e.range.getRow();
+  var col = e.range.getColumn();
+  var numRows = e.range.getNumRows();
+
+  // Ensure edit overlaps the notes column
+  var notesCol = DB_SHEET_SYNC_CONFIG.sheet.columns.notes || 15;
+  var startRow = DB_SHEET_SYNC_CONFIG.sheet.dataStartRow || 2;
+  
+  // Check if edited range includes Notes column
+  if (col > notesCol || (col + e.range.getNumColumns() - 1) < notesCol) return;
+  if (row + numRows - 1 < startRow) return;
+
+  var url = getScriptProperty_(DB_SHEET_SYNC_CONFIG.properties.apiUrl);
+  if (!url) return;
+  var notesUrl = url.replace(/\/api\/sync\/applicants\b/, '/api/sync/notes');
+  var apiKey = getScriptProperty_(DB_SHEET_SYNC_CONFIG.properties.apiKey);
+
+  var keyCol = 0;
+  var lastCol = Math.max(sheet.getLastColumn(), 24);
+  var headerValues = sheet.getRange(DB_SHEET_SYNC_CONFIG.sheet.headerRow, 1, 1, lastCol).getValues()[0];
+  for (var i = 0; i < headerValues.length; i++) {
+    if (String(headerValues[i] || '').trim() === DB_SHEET_SYNC_CONFIG.sheet.keyHeader) {
+      keyCol = i + 1;
+      break;
+    }
+  }
+  if (!keyCol) return;
+
+  for (var r = 0; r < numRows; r++) {
+    var currentRow = row + r;
+    if (currentRow < startRow) continue;
+    var applicantId = String(sheet.getRange(currentRow, keyCol).getValue() || '').trim();
+    if (!applicantId) continue;
+
+    var newNotes = String(sheet.getRange(currentRow, notesCol).getValue() || '');
+    
+    try {
+      var response = UrlFetchApp.fetch(notesUrl, {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify({ applicantId: applicantId, notes: newNotes }),
+        headers: { 'x-rpo-api-key': apiKey },
+        muteHttpExceptions: true
+      });
+      Logger.log('notes sync: applicantId=' + applicantId + ' status=' + response.getResponseCode());
+    } catch (err) {
+      Logger.log('[ERROR] onEditNotesSync failed: ' + errorToMessage_(err));
+    }
+  }
 }

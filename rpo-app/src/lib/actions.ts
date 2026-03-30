@@ -1,7 +1,7 @@
 "use server";
 
 import { db, schema } from "@/db";
-import { and, desc, eq, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { isCompanyNameUniqueConstraintError, normalizeCompanyName } from "@/lib/company-name";
 
@@ -45,6 +45,7 @@ export type ApplicantListResult = {
 
 export type ApplicantFilters = {
     companyId?: string
+    companyIds?: string[]
     searchKeyword?: string
     assigneeName?: string
     responseStatus?: string
@@ -58,6 +59,10 @@ export async function getApplicants(
     pageSize = 50
 ): Promise<ApplicantListResult> {
     const keyword = filters.searchKeyword?.trim()
+    const companyIds = (filters.companyIds || [])
+        .map((id) => id.trim())
+        .filter((id) => id.length > 0)
+    const normalizedCompanyIds = Array.from(new Set(companyIds))
     const currentPage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1
     const currentPageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.min(Math.max(Math.floor(pageSize), 1), 200) : 50
 
@@ -65,13 +70,34 @@ export async function getApplicants(
 
     if (filters.companyId) {
         conditions.push(eq(schema.applicants.companyId, filters.companyId))
+    } else if (normalizedCompanyIds.length > 0) {
+        conditions.push(inArray(schema.applicants.companyId, normalizedCompanyIds))
     }
 
     if (keyword) {
+        const keywordPattern = `%${keyword}%`
         conditions.push(
             or(
-                like(schema.applicants.name, `%${keyword}%`),
-                like(schema.applicants.furigana, `%${keyword}%`)
+                like(schema.applicants.name, keywordPattern),
+                like(schema.applicants.furigana, keywordPattern),
+                like(schema.companies.name, keywordPattern),
+                like(schema.applicants.caseName, keywordPattern),
+                like(schema.applicants.email, keywordPattern),
+                like(schema.applicants.phone, keywordPattern),
+                like(schema.applicants.appliedJob, keywordPattern),
+                like(schema.applicants.appliedLocation, keywordPattern),
+                like(schema.applicants.gender, keywordPattern),
+                like(schema.applicants.responseStatus, keywordPattern),
+                like(schema.applicants.notes, keywordPattern),
+                sql`coalesce(${schema.applicants.assigneeName}, ${schema.users.name}, '') like ${keywordPattern}`,
+                sql`cast(${schema.applicants.age} as text) like ${keywordPattern}`,
+                sql`strftime('%Y-%m-%d', ${schema.applicants.appliedAt}, 'unixepoch') like ${keywordPattern}`,
+                sql`strftime('%Y-%m-%d', ${schema.applicants.birthDate}, 'unixepoch') like ${keywordPattern}`,
+                sql`strftime('%Y-%m-%d', ${schema.applicants.nextActionDate}, 'unixepoch') like ${keywordPattern}`,
+                sql`strftime('%Y-%m-%d', ${schema.applicants.connectedAt}, 'unixepoch') like ${keywordPattern}`,
+                sql`strftime('%Y-%m-%d', ${schema.applicants.primaryScheduledDate}, 'unixepoch') like ${keywordPattern}`,
+                sql`strftime('%Y-%m-%d', ${schema.applicants.secScheduledDate}, 'unixepoch') like ${keywordPattern}`,
+                sql`strftime('%Y-%m-%d', ${schema.applicants.joinedDate}, 'unixepoch') like ${keywordPattern}`
             )!
         )
     }
@@ -142,6 +168,7 @@ export async function getApplicants(
     const countQuery = db
         .select({ total: sql<number>`count(${schema.applicants.id})` })
         .from(schema.applicants)
+        .leftJoin(schema.companies, eq(schema.applicants.companyId, schema.companies.id))
         .leftJoin(schema.users, eq(schema.applicants.assigneeUserId, schema.users.id));
 
     const countedQuery = whereCondition ? countQuery.where(whereCondition) : countQuery;

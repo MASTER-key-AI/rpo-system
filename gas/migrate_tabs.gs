@@ -22,6 +22,7 @@ var TEMPLATE_SPREADSHEET_ID = '1-ixh_LBlJJnD8iwntYZb2hMciA1HwIpvmSM5U037sWk';
 var TEMPLATE_TAB_GID = 465742923;
 var NEW_TAB_NAME = '応募者一覧';
 var OLD_GIDS_PROPERTY_KEY = 'MIGRATE_OLD_GIDS'; // 旧GID記録用
+var LEGACY_TAB_NAMES = ['候補者管理シート', '候補者管理_RPO同期用'];
 
 /* ==========================
  * エントリポイント
@@ -41,6 +42,14 @@ function deleteOldTabs() {
 
 function dryRunDeleteOldTabs() {
   return runDeleteOldTabs_({ dryRun: true });
+}
+
+function deleteLegacyCandidateTabs() {
+  return runDeleteTabsByNames_({ dryRun: false, tabNames: LEGACY_TAB_NAMES });
+}
+
+function dryRunDeleteLegacyCandidateTabs() {
+  return runDeleteTabsByNames_({ dryRun: true, tabNames: LEGACY_TAB_NAMES });
 }
 
 /* ==========================
@@ -383,5 +392,83 @@ function runDeleteOldTabs_(opts) {
   }
 
   Logger.log(JSON.stringify({ mode: dryRun ? 'dryRun' : 'delete', summary: summary }, null, 2));
+  return summary;
+}
+
+/* ==========================
+ * 指定タブ名の一括削除
+ * ========================== */
+
+function runDeleteTabsByNames_(opts) {
+  var dryRun = opts.dryRun;
+  var tabNames = opts.tabNames || [];
+  if (!tabNames.length) {
+    throw new Error('削除対象のタブ名が指定されていません');
+  }
+
+  var sheets = fetchSheetList_();
+  var ssMap = {};
+  for (var i = 0; i < sheets.length; i++) {
+    ssMap[sheets[i].spreadsheetId] = true;
+  }
+  var spreadsheetIds = Object.keys(ssMap);
+  Logger.log('[DELETE_BY_NAME] 対象スプレッドシート数: ' + spreadsheetIds.length + (dryRun ? ' (DRY RUN)' : ''));
+  Logger.log('[DELETE_BY_NAME] 対象タブ名: ' + tabNames.join(', '));
+
+  var targetNameSet = {};
+  for (var n = 0; n < tabNames.length; n++) {
+    targetNameSet[tabNames[n]] = true;
+  }
+
+  var summary = { total: spreadsheetIds.length, deleted: 0, failed: 0, notFound: 0, skipped: 0 };
+
+  for (var j = 0; j < spreadsheetIds.length; j++) {
+    var ssId = spreadsheetIds[j];
+    try {
+      var ss = SpreadsheetApp.openById(ssId);
+      var tabs = ss.getSheets();
+      var targets = [];
+
+      for (var t = 0; t < tabs.length; t++) {
+        var tabName = tabs[t].getName();
+        if (targetNameSet[tabName] && tabName !== NEW_TAB_NAME) {
+          targets.push(tabs[t]);
+        }
+      }
+
+      if (targets.length === 0) {
+        summary.notFound++;
+        Logger.log('[NOT_FOUND] ' + ssId + ' — 対象タブなし');
+        continue;
+      }
+
+      if (dryRun) {
+        for (var d = 0; d < targets.length; d++) {
+          Logger.log('[DRYRUN] 削除予定: ' + ssId + ' "' + targets[d].getName() + '" GID=' + targets[d].getSheetId());
+        }
+        summary.deleted += targets.length;
+        continue;
+      }
+
+      for (var k = 0; k < targets.length; k++) {
+        if (ss.getSheets().length <= 1) {
+          Logger.log('[WARN] ' + ssId + ' — タブが1つ以下になるため残りをスキップ');
+          summary.skipped++;
+          break;
+        }
+        var target = targets[k];
+        var targetName = target.getName();
+        var targetGid = target.getSheetId();
+        ss.deleteSheet(target);
+        summary.deleted++;
+        Logger.log('[DELETED] ' + ssId + ' "' + targetName + '" GID=' + targetGid);
+      }
+    } catch (e) {
+      summary.failed++;
+      Logger.log('[ERROR] ' + ssId + ': ' + migrateErrMsg_(e));
+    }
+  }
+
+  Logger.log(JSON.stringify({ mode: dryRun ? 'dryRunDeleteByName' : 'deleteByName', summary: summary }, null, 2));
   return summary;
 }

@@ -1,0 +1,27 @@
+
+> rpo-app@0.1.0 dev
+> next dev
+
+▲ Next.js 16.1.5 (Turbopack)
+- Local:         http://localhost:3001
+- Network:       http://192.168.3.39:3001
+- Environments: .env.local
+
+✓ Starting...
+Creating turbopack project { dir: 'C:\\Users\\hirot\\RPO system\\rpo-app', testMode: true }
+✓ Ready in 6.4s
+ GET /login?callbackUrl=%2Fapplicants 200 in 2.6s (compile: 1058ms, render: 1589ms)
+ GET /api/auth/providers 200 in 1497ms (compile: 1418ms, render: 79ms)
+ GET /api/auth/error 200 in 74ms (compile: 40ms, render: 33ms)
+ GET /api/auth/error 200 in 983ms (compile: 266ms, render: 717ms)
+ GET / 307 in 687ms (compile: 111ms, render: 576ms)
+ GET /login?callbackUrl=%2Fapplicants 200 in 152ms (compile: 14ms, render: 138ms)
+ GET /api/auth/providers 200 in 58ms (compile: 36ms, render: 21ms)
+ GET /api/auth/csrf 200 in 31ms (compile: 13ms, render: 18ms)
+ POST /api/auth/signin/google? 200 in 151ms (compile: 8ms, render: 143ms)
+ GET / 307 in 300ms (compile: 60ms, render: 240ms)
+ GET /login?callbackUrl=%2Fapplicants 200 in 162ms (compile: 18ms, render: 145ms)
+ GET /api/auth/providers 200 in 66ms (compile: 38ms, render: 29ms)
+ GET /api/auth/csrf 200 in 23ms (compile: 8ms, render: 15ms)
+ POST /api/auth/signin/google? 200 in 146ms (compile: 9ms, render: 138ms)
+[?25h
