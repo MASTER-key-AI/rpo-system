@@ -78,6 +78,8 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ success: false, error: "appliedAt is required and must be a valid date" }, { status: 400 })
         }
 
+        const company = await getOrCreateCompany(companyName)
+
         if (messageId) {
             const existed = await db
                 .select({ id: schema.applicants.id })
@@ -86,10 +88,25 @@ export async function POST(request: NextRequest) {
                 .get()
 
             if (existed) {
+                await db
+                    .update(schema.applicants)
+                    .set({
+                        companyId: company.id,
+                        name,
+                        caseName: caseName || null,
+                        appliedAt,
+                        appliedJob: appliedJob || null,
+                        appliedLocation: appliedLocation || null,
+                        email,
+                        sourceGmailThreadId: threadId || null,
+                        updatedAt: new Date(),
+                    })
+                    .where(eq(schema.applicants.id, existed.id))
+
                 return NextResponse.json(
                     {
                         success: true,
-                        status: "already_imported",
+                        status: "already_imported_updated",
                         applicantId: existed.id,
                     },
                     { status: 200 }
@@ -97,7 +114,6 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        const company = await getOrCreateCompany(companyName)
         const applicantId = crypto.randomUUID()
 
         await db.insert(schema.applicants).values({
