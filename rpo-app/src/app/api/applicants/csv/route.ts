@@ -35,11 +35,11 @@ type ApplicantCsvRow = {
 const CSV_HEADERS = [
     "応募者ID",
     "応募日",
-    "会社名",
+    "企業名",
     "案件名",
     "氏名",
     "mail",
-    "応募職種名",
+    "応募案件名",
     "勤務地",
     "電話番号",
     "年齢",
@@ -47,18 +47,17 @@ const CSV_HEADERS = [
     "性別",
     "担当者名",
     "有効応募",
-    "対応状況",
+    "対応ステータス",
     "備考",
     "次回アクション日",
     "通電日",
-    "面接予定日",
-    "実施可否",
-    "二次/最終面接予定日",
-    "二次/最終実施可否",
+    "面接日程",
+    "面接実施",
+    "二次/最終面接日程",
+    "二次/最終面接実施",
     "内定可否",
     "入社日",
 ]
-
 export async function GET(request: NextRequest) {
     const session = await auth()
     if (!session?.user) {
@@ -296,3 +295,4 @@ function parseAppliedDateFilter(value?: string) {
         endUnix: Math.floor(endMs / 1000),
     }
 }
+

@@ -119,4 +119,3 @@ export default function ApplicantsCsvActions({ exportHref }: Props) {
         </div>
     )
 }
-
