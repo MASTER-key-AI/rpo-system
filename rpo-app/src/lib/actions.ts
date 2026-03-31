@@ -51,6 +51,40 @@ export type ApplicantFilters = {
     responseStatus?: string
     isValidApplicant?: "true" | "false"
     gender?: string
+    offered?: "true" | "false"
+    appliedDateFrom?: string
+    appliedDateTo?: string
+}
+
+function parseAppliedDateFilter(value?: string) {
+    const raw = value?.trim()
+    if (!raw) return null
+
+    const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+    if (!match) return null
+
+    const year = Number(match[1])
+    const month = Number(match[2])
+    const day = Number(match[3])
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null
+
+    const startMs = Date.UTC(year, month - 1, day, 0, 0, 0, 0)
+    if (!Number.isFinite(startMs)) return null
+
+    const parsed = new Date(startMs)
+    if (
+        parsed.getUTCFullYear() !== year ||
+        parsed.getUTCMonth() !== month - 1 ||
+        parsed.getUTCDate() !== day
+    ) {
+        return null
+    }
+
+    const endMs = Date.UTC(year, month - 1, day + 1, 0, 0, 0, 0)
+    return {
+        startUnix: Math.floor(startMs / 1000),
+        endUnix: Math.floor(endMs / 1000),
+    }
 }
 
 export async function getApplicants(
@@ -65,6 +99,8 @@ export async function getApplicants(
     const normalizedCompanyIds = Array.from(new Set(companyIds))
     const currentPage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1
     const currentPageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.min(Math.max(Math.floor(pageSize), 1), 200) : 50
+    const appliedDateFrom = parseAppliedDateFilter(filters.appliedDateFrom)
+    const appliedDateTo = parseAppliedDateFilter(filters.appliedDateTo)
 
     const conditions = []
 
@@ -125,6 +161,24 @@ export async function getApplicants(
 
     if (filters.gender) {
         conditions.push(eq(schema.applicants.gender, filters.gender))
+    }
+
+    if (filters.offered === "true") {
+        conditions.push(eq(schema.applicants.offered, true))
+    } else if (filters.offered === "false") {
+        conditions.push(
+            or(
+                eq(schema.applicants.offered, false),
+                sql`${schema.applicants.offered} IS NULL`,
+            )!,
+        )
+    }
+
+    if (appliedDateFrom) {
+        conditions.push(sql`${schema.applicants.appliedAt} >= ${appliedDateFrom.startUnix}`)
+    }
+    if (appliedDateTo) {
+        conditions.push(sql`${schema.applicants.appliedAt} < ${appliedDateTo.endUnix}`)
     }
 
     const whereCondition = conditions.length > 0 ? and(...conditions) : undefined

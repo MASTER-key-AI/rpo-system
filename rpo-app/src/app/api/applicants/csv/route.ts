@@ -81,6 +81,9 @@ export async function GET(request: NextRequest) {
     const responseStatus = params.get("responseStatus")?.trim()
     const isValidApplicant = params.get("isValidApplicant")?.trim()
     const gender = params.get("gender")?.trim()
+    const offered = params.get("offered")?.trim()
+    const appliedDateFrom = parseAppliedDateFilter(params.get("appliedDateFrom")?.trim())
+    const appliedDateTo = parseAppliedDateFilter(params.get("appliedDateTo")?.trim())
 
     const whereClauses = []
     if (companyId) {
@@ -135,6 +138,22 @@ export async function GET(request: NextRequest) {
     }
     if (gender) {
         whereClauses.push(eq(schema.applicants.gender, gender))
+    }
+    if (offered === "true") {
+        whereClauses.push(eq(schema.applicants.offered, true))
+    } else if (offered === "false") {
+        whereClauses.push(
+            or(
+                eq(schema.applicants.offered, false),
+                sql`${schema.applicants.offered} IS NULL`,
+            )!,
+        )
+    }
+    if (appliedDateFrom) {
+        whereClauses.push(sql`${schema.applicants.appliedAt} >= ${appliedDateFrom.startUnix}`)
+    }
+    if (appliedDateTo) {
+        whereClauses.push(sql`${schema.applicants.appliedAt} < ${appliedDateTo.endUnix}`)
     }
 
     const query = db
@@ -245,4 +264,35 @@ function buildTimestamp() {
     const mi = String(now.getMinutes()).padStart(2, "0")
     const ss = String(now.getSeconds()).padStart(2, "0")
     return `${yyyy}${mm}${dd}_${hh}${mi}${ss}`
+}
+
+function parseAppliedDateFilter(value?: string) {
+    const raw = value?.trim()
+    if (!raw) return null
+
+    const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+    if (!match) return null
+
+    const year = Number(match[1])
+    const month = Number(match[2])
+    const day = Number(match[3])
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null
+
+    const startMs = Date.UTC(year, month - 1, day, 0, 0, 0, 0)
+    if (!Number.isFinite(startMs)) return null
+
+    const parsed = new Date(startMs)
+    if (
+        parsed.getUTCFullYear() !== year ||
+        parsed.getUTCMonth() !== month - 1 ||
+        parsed.getUTCDate() !== day
+    ) {
+        return null
+    }
+
+    const endMs = Date.UTC(year, month - 1, day + 1, 0, 0, 0, 0)
+    return {
+        startUnix: Math.floor(startMs / 1000),
+        endUnix: Math.floor(endMs / 1000),
+    }
 }

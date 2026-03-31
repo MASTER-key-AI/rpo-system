@@ -18,6 +18,9 @@ type SearchParams = {
     responseStatus?: string
     isValidApplicant?: string
     gender?: string
+    offered?: string
+    appliedDateFrom?: string
+    appliedDateTo?: string
 }
 
 export default async function ApplicantsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
@@ -47,6 +50,9 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
         responseStatus: params.responseStatus || undefined,
         isValidApplicant: params.isValidApplicant === "true" || params.isValidApplicant === "false" ? params.isValidApplicant : undefined,
         gender: params.gender || undefined,
+        offered: params.offered === "true" || params.offered === "false" ? params.offered : undefined,
+        appliedDateFrom: params.appliedDateFrom || undefined,
+        appliedDateTo: params.appliedDateTo || undefined,
     }
 
     const [
@@ -69,6 +75,9 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
         if (params.responseStatus) query.set("responseStatus", params.responseStatus)
         if (params.isValidApplicant) query.set("isValidApplicant", params.isValidApplicant)
         if (params.gender) query.set("gender", params.gender)
+        if (params.offered) query.set("offered", params.offered)
+        if (params.appliedDateFrom) query.set("appliedDateFrom", params.appliedDateFrom)
+        if (params.appliedDateTo) query.set("appliedDateTo", params.appliedDateTo)
         if (nextPage > 1) query.set("page", String(nextPage))
         return `/applicants${query.toString() ? `?${query.toString()}` : ""}`
     }
@@ -81,6 +90,9 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
     if (params.responseStatus) exportQuery.set("responseStatus", params.responseStatus)
     if (params.isValidApplicant) exportQuery.set("isValidApplicant", params.isValidApplicant)
     if (params.gender) exportQuery.set("gender", params.gender)
+    if (params.offered) exportQuery.set("offered", params.offered)
+    if (params.appliedDateFrom) exportQuery.set("appliedDateFrom", params.appliedDateFrom)
+    if (params.appliedDateTo) exportQuery.set("appliedDateTo", params.appliedDateTo)
     const exportHref = `/api/applicants/csv${exportQuery.toString() ? `?${exportQuery.toString()}` : ""}`
 
     const filterCompanyName = singleSelectedCompanyId
@@ -122,6 +134,9 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
                             {params.responseStatus ? <input type="hidden" name="responseStatus" value={params.responseStatus} /> : null}
                             {params.isValidApplicant ? <input type="hidden" name="isValidApplicant" value={params.isValidApplicant} /> : null}
                             {params.gender ? <input type="hidden" name="gender" value={params.gender} /> : null}
+                            {params.offered ? <input type="hidden" name="offered" value={params.offered} /> : null}
+                            {params.appliedDateFrom ? <input type="hidden" name="appliedDateFrom" value={params.appliedDateFrom} /> : null}
+                            {params.appliedDateTo ? <input type="hidden" name="appliedDateTo" value={params.appliedDateTo} /> : null}
                             <button type="submit" className="sr-only">検索</button>
                         </form>
                         <CompanyFilterSelect
@@ -135,6 +150,9 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
                         responseStatus={params.responseStatus}
                         isValidApplicant={params.isValidApplicant}
                         gender={params.gender}
+                        offered={params.offered}
+                        appliedDateFrom={params.appliedDateFrom}
+                        appliedDateTo={params.appliedDateTo}
                     />
                     <p className="text-[11px] text-muted-foreground">
                         キーワード検索は氏名・企業名・案件名・連絡先・担当者・ステータス・各日付項目を対象にしています。
