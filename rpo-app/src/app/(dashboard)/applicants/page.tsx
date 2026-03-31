@@ -7,6 +7,7 @@ import ApplicantFilterBar from "./ApplicantFilterBar"
 import ApplicantsTableClient from "./ApplicantsTableClient"
 import ApplicantsCsvActions from "./ApplicantsCsvActions"
 import CompanyContextBar from "@/components/CompanyContextBar"
+import NewApplicantModal from "./NewApplicantModal"
 import Link from "next/link"
 
 type SearchParams = {
@@ -106,6 +107,7 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
                     <h1 className="text-2xl font-bold tracking-tight text-foreground">応募者管理</h1>
                     <p className="text-muted-foreground mt-0.5 text-[13px]">選考ステータスや面接日程を管理します</p>
                 </div>
+                <NewApplicantModal companies={companies} />
             </div>
 
             {singleSelectedCompanyId && filterCompanyName && (

@@ -3,6 +3,7 @@
 import { auth } from "@/auth";
 import { db, schema } from "@/db";
 import { getRuntimeEnv } from "@/lib/runtime-env";
+import { normalizeCompanyName, normalizeCompanyNameForMatch, isCompanyNameUniqueConstraintError } from "@/lib/company-name";
 import { and, asc, desc, eq, like, or, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
@@ -297,4 +298,101 @@ export async function deleteApplicant(applicantId: string) {
     revalidatePath("/companies");
     revalidatePath("/calls");
     return { success: true };
+}
+
+export type CreateApplicantInput = {
+    name: string;
+    furigana?: string;
+    companyName: string;
+    appliedAt: string; // ISO date string
+    caseName?: string;
+    appliedJob?: string;
+    appliedLocation?: string;
+    email?: string;
+    phone?: string;
+    gender?: string;
+};
+
+export async function createApplicant(input: CreateApplicantInput) {
+    const name = input.name?.trim();
+    if (!name) throw new Error("氏名は必須です。");
+
+    const rawCompanyName = input.companyName?.trim();
+    if (!rawCompanyName) throw new Error("会社名は必須です。");
+
+    const appliedAt = new Date(input.appliedAt);
+    if (Number.isNaN(appliedAt.getTime())) throw new Error("応募日が不正です。");
+
+    // 会社名の正規化・マッチング（inbound/indeedと同じロジック）
+    const normalized = normalizeCompanyName(rawCompanyName);
+    let company = await db
+        .select({ id: schema.companies.id, name: schema.companies.name })
+        .from(schema.companies)
+        .where(eq(schema.companies.name, normalized))
+        .get();
+
+    if (!company) {
+        const byAlias = await db
+            .select({ id: schema.companies.id, name: schema.companies.name })
+            .from(schema.companyAliases)
+            .innerJoin(schema.companies, eq(schema.companyAliases.companyId, schema.companies.id))
+            .where(eq(schema.companyAliases.alias, normalized))
+            .get();
+        company = byAlias ?? undefined;
+    }
+
+    if (!company) {
+        const normalizedForMatch = normalizeCompanyNameForMatch(normalized);
+        if (normalizedForMatch.length >= 2) {
+            const allCompanies = await db
+                .select({ id: schema.companies.id, name: schema.companies.name })
+                .from(schema.companies)
+                .all();
+            const fuzzy = allCompanies.find(
+                (c) => normalizeCompanyNameForMatch(c.name) === normalizedForMatch
+            );
+            if (fuzzy) {
+                company = fuzzy;
+            }
+        }
+    }
+
+    if (!company) {
+        const newId = crypto.randomUUID();
+        try {
+            const inserted = await db
+                .insert(schema.companies)
+                .values({ id: newId, name: normalized })
+                .returning();
+            company = inserted[0];
+        } catch (error) {
+            if (!isCompanyNameUniqueConstraintError(error)) throw error;
+            const existing = await db
+                .select({ id: schema.companies.id, name: schema.companies.name })
+                .from(schema.companies)
+                .where(eq(schema.companies.name, normalized))
+                .get();
+            if (!existing) throw new Error("会社の作成に失敗しました。");
+            company = existing;
+        }
+    }
+
+    const applicantId = crypto.randomUUID();
+    await db.insert(schema.applicants).values({
+        id: applicantId,
+        companyId: company.id,
+        name,
+        furigana: input.furigana?.trim() || null,
+        appliedAt,
+        caseName: input.caseName?.trim() || null,
+        appliedJob: input.appliedJob?.trim() || null,
+        appliedLocation: input.appliedLocation?.trim() || null,
+        email: input.email?.trim().toLowerCase() || null,
+        phone: input.phone?.trim() || null,
+        gender: input.gender?.trim() || null,
+    });
+
+    revalidatePath("/applicants");
+    revalidatePath("/companies");
+    return { success: true, applicantId, companyId: company.id };
 }
