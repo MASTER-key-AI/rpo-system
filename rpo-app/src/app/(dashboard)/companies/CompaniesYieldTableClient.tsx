@@ -13,6 +13,7 @@ type CompanyYieldRow = {
     validApplicants: number
     validApplicantRate: string
     connectedApplicantCount: number
+    connectedValidApplicantCount: number
     notConnectedCount: number
     phoneAppointmentCount: number
     docDeclined: number
@@ -132,6 +133,7 @@ const NUMERIC_KEYS: Array<keyof CompanyYieldRow> = [
     "uniqueApplicants",
     "validApplicants",
     "connectedApplicantCount",
+    "connectedValidApplicantCount",
     "notConnectedCount",
     "phoneAppointmentCount",
     "docDeclined",
@@ -363,6 +365,7 @@ function createSummaryRow(rows: CompanyYieldRow[], companyName: string): Company
             validApplicants: 0,
             validApplicantRate: "0.0% (0/0)",
             connectedApplicantCount: 0,
+            connectedValidApplicantCount: 0,
             notConnectedCount: 0,
             phoneAppointmentCount: 0,
             docDeclined: 0,
@@ -402,7 +405,7 @@ function createSummaryRow(rows: CompanyYieldRow[], companyName: string): Company
         },
     )
 
-    total.connectedApplicantRate = toRate(total.connectedApplicantCount, total.validApplicants)
+    total.connectedApplicantRate = toRate(total.connectedValidApplicantCount, total.validApplicants)
     total.interviewScheduledRate = toRate(total.interviewScheduledCount, total.validApplicants)
     total.interviewConductedRate = toRate(total.interviewConductedCount, total.validApplicants)
     total.offerRate = toRate(total.offered, total.validApplicants)

@@ -3,36 +3,19 @@
 import { db, schema } from "@/db";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
-const PHONE_APPOINTMENT_STATUSES = ["電話アポ日程確定済み", "電話アポ確定済み"] as const
-const NOT_CONNECTED_STATUSES = ["初回電話不通/SMS送付済み", "追電中", "連絡不通（不採用）"] as const
-const CONNECTED_STATUS_CANDIDATES = [
-    "公式LINE誘導中",
-    "電話アポ日程調整中",
-    ...PHONE_APPOINTMENT_STATUSES,
-    "企業面接日程調整中",
-    "面接日程確定済み",
-    "面接日程再調整中",
-    "面接前辞退",
-    "面接飛び",
-    "面接後辞退",
-    "面接不採用",
-    "二次/最終面接調整中",
-    "二次/最終面接日程確定済み",
-    "二次/最終面接前辞退",
-    "二次/最終面接飛び",
-    "二次/最終面接後辞退",
-    "二次/最終面接不採用",
-    "内定",
-    "内定後辞退",
-    "入社前辞退",
-    "入社",
-    "MK提案済み",
-] as const
-const DOC_REJECTED_MK_STATUSES = ["書類不採用（MK対応）"] as const
-const DOC_REJECTED_CLIENT_STATUSES = ["書類不採用（クライアント判断）", "書類不採用"] as const
-const SCHEDULING_INTERVIEW_STATUSES = ["企業面接日程調整中", "面接日程再調整中", "二次/最終面接調整中"] as const
-const INTERVIEW_REJECTED_STATUSES = ["面接不採用", "二次/最終面接不採用"] as const
-const OFFERED_STATUSES = ["内定", "内定後辞退", "入社前辞退", "入社"] as const
+const DUPLICATE_APPLICATION_STATUSES = ["重複応募（応募歴あり）", "重複応募(応募歴あり)"] as const
+const NOT_CONNECTED_STATUSES = ["連絡不通（不採用）"] as const
+const PHONE_APPOINTMENT_FIXED_STATUSES = ["電話アポ日程確定済み"] as const
+const DOC_DECLINED_STATUSES = ["書類選考中辞退"] as const
+const DOC_REJECTED_MK_STATUSES = ["書類不採用(MK判断)", "書類不採用（MK判断）", "書類不採用（MK対応）"] as const
+const DOC_REJECTED_CLIENT_STATUSES = ["書類不採用(クライアント判断)", "書類不採用（クライアント判断）"] as const
+const COMPANY_INTERVIEW_SCHEDULING_STATUSES = ["企業面接日程調整中", "企業面接日程調整中数"] as const
+const PRIMARY_INTERVIEW_PLANNED_STATUSES = ["面接日程確定済み"] as const
+const PRIMARY_INTERVIEW_DECLINED_BEFORE_STATUSES = ["面接前辞退", "面接前辞退数"] as const
+const PRIMARY_INTERVIEW_NO_SHOW_STATUSES = ["面接飛び", "面接飛び数"] as const
+const PRIMARY_INTERVIEW_DECLINED_AFTER_STATUSES = ["面接後辞退"] as const
+const PRIMARY_INTERVIEW_REJECTED_STATUSES = ["面接不採用", "面接不採用数"] as const
+const OFFERED_STATUSES = ["内定", "内定数"] as const
 const OFFER_DECLINED_STATUSES = ["内定後辞退", "入社前辞退"] as const
 const JOINED_STATUSES = ["入社"] as const
 
@@ -57,6 +40,7 @@ export type CompanyYieldRow = {
     validApplicants: number
     validApplicantRate: string
     connectedApplicantCount: number
+    connectedValidApplicantCount: number
     notConnectedCount: number
     phoneAppointmentCount: number
     docDeclined: number
@@ -211,126 +195,44 @@ export async function getCompanyYields(
                 companyId: schema.companies.id,
                 companyName: schema.companies.name,
                 totalApplicants: sql<number>`count(${schema.applicants.id})`,
-                uniqueApplicants: sql<number>`count(distinct ${UNIQUE_APPLICANT_KEY_EXPR})`,
+                uniqueApplicants: sql<number>`count(${schema.applicants.id}) - sum(case when ${statusIn(DUPLICATE_APPLICATION_STATUSES)} then 1 else 0 end)`,
                 validApplicants: sql<number>`sum(coalesce(${schema.applicants.isValidApplicant},0))`,
-                docDeclined: sql<number>`sum(coalesce(${schema.applicants.docDeclined},0))`,
-                docRejectedMK: sql<number>`
-                    sum(
-                        case
-                            when coalesce(${schema.applicants.docRejectedMK},0) = 1
-                                or ${statusIn(DOC_REJECTED_MK_STATUSES)}
-                            then 1
-                            else 0
-                        end
-                    )
-                `,
-                docRejectedClient: sql<number>`
-                    sum(
-                        case
-                            when coalesce(${schema.applicants.docRejectedClient},0) = 1
-                                or ${statusIn(DOC_REJECTED_CLIENT_STATUSES)}
-                            then 1
-                            else 0
-                        end
-                    )
-                `,
-                docRejected: sql<number>`
-                    sum(
-                        case
-                            when coalesce(${schema.applicants.docRejectedMK},0) = 1
-                                or coalesce(${schema.applicants.docRejectedClient},0) = 1
-                                or ${statusIn([...DOC_REJECTED_MK_STATUSES, ...DOC_REJECTED_CLIENT_STATUSES])}
-                            then 1
-                            else 0
-                        end
-                    )
-                `,
-                schedulingInterview: sql<number>`
-                    sum(
-                        case
-                            when coalesce(${schema.applicants.schedulingInterview},0) = 1
-                                or ${statusIn(SCHEDULING_INTERVIEW_STATUSES)}
-                            then 1
-                            else 0
-                        end
-                    )
-                `,
-                interviewDeclinedBefore: sql<number>`sum(coalesce(${schema.applicants.interviewDeclinedBefore},0) + coalesce(${schema.applicants.secDeclinedBefore},0) + coalesce(${schema.applicants.finalDeclinedBefore},0))`,
-                priScheduled: sql<number>`sum(coalesce(${schema.applicants.primaryScheduled},0))`,
-                priConducted: sql<number>`sum(coalesce(${schema.applicants.primaryConducted},0))`,
-                priNoShow: sql<number>`sum(coalesce(${schema.applicants.primaryNoShow},0))`,
-                primaryDeclinedAfter: sql<number>`sum(coalesce(${schema.applicants.primaryDeclinedAfter},0))`,
-                primaryRejected: sql<number>`sum(coalesce(${schema.applicants.primaryRejected},0))`,
-                secScheduled: sql<number>`sum(coalesce(${schema.applicants.secScheduled},0))`,
-                secConducted: sql<number>`sum(coalesce(${schema.applicants.secConducted},0))`,
+                docDeclined: sql<number>`sum(case when ${statusIn(DOC_DECLINED_STATUSES)} then 1 else 0 end)`,
+                docRejectedMK: sql<number>`sum(case when ${statusIn(DOC_REJECTED_MK_STATUSES)} then 1 else 0 end)`,
+                docRejectedClient: sql<number>`sum(case when ${statusIn(DOC_REJECTED_CLIENT_STATUSES)} then 1 else 0 end)`,
+                docRejected: sql<number>`sum(case when ${statusIn([...DOC_REJECTED_MK_STATUSES, ...DOC_REJECTED_CLIENT_STATUSES])} then 1 else 0 end)`,
+                schedulingInterview: sql<number>`sum(case when ${statusIn(COMPANY_INTERVIEW_SCHEDULING_STATUSES)} then 1 else 0 end)`,
+                interviewDeclinedBefore: sql<number>`sum(case when ${statusIn(PRIMARY_INTERVIEW_DECLINED_BEFORE_STATUSES)} then 1 else 0 end)`,
+                priScheduled: sql<number>`sum(case when ${schema.applicants.primaryScheduledDate} is not null then 1 else 0 end)`,
+                priConducted: sql<number>`sum(case when coalesce(${schema.applicants.primaryConducted},0) = 1 then 1 else 0 end)`,
+                priNoShow: sql<number>`sum(case when ${statusIn(PRIMARY_INTERVIEW_NO_SHOW_STATUSES)} then 1 else 0 end)`,
+                primaryDeclinedAfter: sql<number>`sum(case when ${statusIn(PRIMARY_INTERVIEW_DECLINED_AFTER_STATUSES)} then 1 else 0 end)`,
+                primaryRejected: sql<number>`sum(case when ${statusIn(PRIMARY_INTERVIEW_REJECTED_STATUSES)} then 1 else 0 end)`,
+                secScheduled: sql<number>`sum(case when ${schema.applicants.secScheduledDate} is not null then 1 else 0 end)`,
+                secConducted: sql<number>`sum(case when coalesce(${schema.applicants.secConducted},0) = 1 then 1 else 0 end)`,
                 secDeclinedBefore: sql<number>`sum(coalesce(${schema.applicants.secDeclinedBefore},0))`,
                 secNoShow: sql<number>`sum(coalesce(${schema.applicants.secNoShow},0))`,
                 secDeclinedAfter: sql<number>`sum(coalesce(${schema.applicants.secDeclinedAfter},0))`,
                 secRejected: sql<number>`sum(coalesce(${schema.applicants.secRejected},0))`,
-                finalScheduled: sql<number>`sum(coalesce(${schema.applicants.finalScheduled},0))`,
-                finalConducted: sql<number>`sum(coalesce(${schema.applicants.finalConducted},0))`,
+                finalScheduled: sql<number>`sum(case when ${schema.applicants.finalScheduledDate} is not null then 1 else 0 end)`,
+                finalConducted: sql<number>`sum(case when coalesce(${schema.applicants.finalConducted},0) = 1 then 1 else 0 end)`,
                 finalDeclinedBefore: sql<number>`sum(coalesce(${schema.applicants.finalDeclinedBefore},0))`,
                 finalNoShow: sql<number>`sum(coalesce(${schema.applicants.finalNoShow},0))`,
                 finalDeclinedAfter: sql<number>`sum(coalesce(${schema.applicants.finalDeclinedAfter},0))`,
                 finalRejected: sql<number>`sum(coalesce(${schema.applicants.finalRejected},0))`,
-                interviewScheduledCount: sql<number>`sum(case when coalesce(${schema.applicants.primaryScheduled}, 0) = 1 or coalesce(${schema.applicants.secScheduled}, 0) = 1 or coalesce(${schema.applicants.finalScheduled}, 0) = 1 then 1 else 0 end)`,
-                interviewPlannedCount: sql<number>`sum(coalesce(${schema.applicants.primaryScheduled},0) + coalesce(${schema.applicants.secScheduled},0) + coalesce(${schema.applicants.finalScheduled},0))`,
-                interviewConductedCount: sql<number>`sum(coalesce(${schema.applicants.primaryConducted},0) + coalesce(${schema.applicants.secConducted},0) + coalesce(${schema.applicants.finalConducted},0))`,
-                interviewConductedUniqueCount: sql<number>`sum(case when coalesce(${schema.applicants.primaryConducted}, 0) = 1 or coalesce(${schema.applicants.secConducted}, 0) = 1 or coalesce(${schema.applicants.finalConducted}, 0) = 1 then 1 else 0 end)`,
-                interviewDateSetCount: sql<number>`sum(case when ${schema.applicants.primaryScheduledDate} is not null or ${schema.applicants.secScheduledDate} is not null or ${schema.applicants.finalScheduledDate} is not null then 1 else 0 end)`,
-                preInterviewDeclinedCount: sql<number>`sum(case when coalesce(${schema.applicants.interviewDeclinedBefore}, 0) = 1 or coalesce(${schema.applicants.secDeclinedBefore}, 0) = 1 or coalesce(${schema.applicants.finalDeclinedBefore}, 0) = 1 then 1 else 0 end)`,
-                interviewNoShowCount: sql<number>`sum(coalesce(${schema.applicants.primaryNoShow},0) + coalesce(${schema.applicants.secNoShow},0) + coalesce(${schema.applicants.finalNoShow},0))`,
-                interviewDeclinedAfterCount: sql<number>`sum(coalesce(${schema.applicants.primaryDeclinedAfter},0) + coalesce(${schema.applicants.secDeclinedAfter},0) + coalesce(${schema.applicants.finalDeclinedAfter},0))`,
-                interviewRejectedCount: sql<number>`
-                    sum(
-                        case
-                            when coalesce(${schema.applicants.primaryRejected},0) = 1
-                                or coalesce(${schema.applicants.secRejected},0) = 1
-                                or coalesce(${schema.applicants.finalRejected},0) = 1
-                                or ${statusIn(INTERVIEW_REJECTED_STATUSES)}
-                            then 1
-                            else 0
-                        end
-                    )
-                `,
-                phoneAppointmentCount: sql<number>`
-                    sum(
-                        case
-                            when ${statusIn(PHONE_APPOINTMENT_STATUSES)} then 1
-                            else 0
-                        end
-                    )
-                `,
-                offered: sql<number>`
-                    sum(
-                        case
-                            when coalesce(${schema.applicants.offered},0) = 1
-                                or ${statusIn(OFFERED_STATUSES)}
-                            then 1
-                            else 0
-                        end
-                    )
-                `,
-                offerDeclined: sql<number>`
-                    sum(
-                        case
-                            when coalesce(${schema.applicants.offerDeclined},0) = 1
-                                or ${statusIn(OFFER_DECLINED_STATUSES)}
-                            then 1
-                            else 0
-                        end
-                    )
-                `,
-                joined: sql<number>`
-                    sum(
-                        case
-                            when coalesce(${schema.applicants.joined},0) = 1
-                                or ${statusIn(JOINED_STATUSES)}
-                            then 1
-                            else 0
-                        end
-                    )
-                `,
+                interviewScheduledCount: sql<number>`sum(case when ${schema.applicants.primaryScheduledDate} is not null then 1 else 0 end)`,
+                interviewPlannedCount: sql<number>`sum(case when ${statusIn(PRIMARY_INTERVIEW_PLANNED_STATUSES)} then 1 else 0 end)`,
+                interviewConductedCount: sql<number>`sum(case when coalesce(${schema.applicants.primaryConducted},0) = 1 then 1 else 0 end)`,
+                interviewConductedUniqueCount: sql<number>`sum(case when coalesce(${schema.applicants.primaryConducted},0) = 1 then 1 else 0 end)`,
+                interviewDateSetCount: sql<number>`sum(case when ${schema.applicants.primaryScheduledDate} is not null then 1 else 0 end)`,
+                preInterviewDeclinedCount: sql<number>`sum(case when ${statusIn(PRIMARY_INTERVIEW_DECLINED_BEFORE_STATUSES)} then 1 else 0 end)`,
+                interviewNoShowCount: sql<number>`sum(case when ${statusIn(PRIMARY_INTERVIEW_NO_SHOW_STATUSES)} then 1 else 0 end)`,
+                interviewDeclinedAfterCount: sql<number>`sum(case when ${statusIn(PRIMARY_INTERVIEW_DECLINED_AFTER_STATUSES)} then 1 else 0 end)`,
+                interviewRejectedCount: sql<number>`sum(case when ${statusIn(PRIMARY_INTERVIEW_REJECTED_STATUSES)} then 1 else 0 end)`,
+                phoneAppointmentCount: sql<number>`sum(case when ${statusIn(PHONE_APPOINTMENT_FIXED_STATUSES)} then 1 else 0 end)`,
+                offered: sql<number>`sum(case when ${statusIn(OFFERED_STATUSES)} then 1 else 0 end)`,
+                offerDeclined: sql<number>`sum(case when ${statusIn(OFFER_DECLINED_STATUSES)} then 1 else 0 end)`,
+                joined: sql<number>`sum(case when ${statusIn(JOINED_STATUSES)} then 1 else 0 end)`,
             })
             .from(schema.companies)
             .where(companyWhereClause)
@@ -343,11 +245,17 @@ export async function getCompanyYields(
                 connectedApplicantCount: sql<number>`
                     sum(
                         case
-                            when coalesce(${schema.applicants.isValidApplicant}, 0) = 1
-                                and (
-                                    ${schema.applicants.connectedAt} is not null
-                                    or ${statusIn(CONNECTED_STATUS_CANDIDATES)}
-                                )
+                            when ${schema.applicants.connectedAt} is not null
+                            then 1
+                            else 0
+                        end
+                    )
+                `,
+                connectedValidApplicantCount: sql<number>`
+                    sum(
+                        case
+                            when ${schema.applicants.connectedAt} is not null
+                                and coalesce(${schema.applicants.isValidApplicant}, 0) = 1
                             then 1
                             else 0
                         end
@@ -356,9 +264,7 @@ export async function getCompanyYields(
                 notConnectedCount: sql<number>`
                     sum(
                         case
-                            when coalesce(${schema.applicants.isValidApplicant}, 0) = 1
-                                and ${schema.applicants.connectedAt} is null
-                                and ${statusIn(NOT_CONNECTED_STATUSES)}
+                            when ${statusIn(NOT_CONNECTED_STATUSES)}
                             then 1
                             else 0
                         end
@@ -376,6 +282,7 @@ export async function getCompanyYields(
             row.companyId,
             {
                 connectedApplicantCount: Number(row.connectedApplicantCount || 0),
+                connectedValidApplicantCount: Number(row.connectedValidApplicantCount || 0),
                 notConnectedCount: Number(row.notConnectedCount || 0),
             },
         ]),
@@ -385,6 +292,7 @@ export async function getCompanyYields(
         const validApplicants = Number(row.validApplicants || 0)
         const totalApplicants = Number(row.totalApplicants || 0)
         const connectedApplicantCount = callMetricMap.get(row.companyId)?.connectedApplicantCount || 0
+        const connectedValidApplicantCount = callMetricMap.get(row.companyId)?.connectedValidApplicantCount || 0
         const notConnectedCount = callMetricMap.get(row.companyId)?.notConnectedCount || 0
         const interviewScheduledCount = Number(row.interviewScheduledCount || 0)
         const interviewDateSetCount = Number(row.interviewDateSetCount || 0)
@@ -402,6 +310,7 @@ export async function getCompanyYields(
             validApplicants,
             validApplicantRate: formatRate(validApplicants, totalApplicants),
             connectedApplicantCount,
+            connectedValidApplicantCount,
             notConnectedCount,
             phoneAppointmentCount: Number(row.phoneAppointmentCount || 0),
             docDeclined: Number(row.docDeclined || 0),
@@ -440,7 +349,7 @@ export async function getCompanyYields(
             offerPendingCount,
             offerDeclined,
             joined,
-            connectedApplicantRate: formatRate(connectedApplicantCount, validApplicants),
+            connectedApplicantRate: formatRate(connectedValidApplicantCount, validApplicants),
             interviewScheduledRate: formatRate(interviewScheduledCount, validApplicants),
             interviewConductedRate: formatRate(interviewConductedUniqueCount, validApplicants),
             offerRate: formatRate(offered, validApplicants),
@@ -461,50 +370,16 @@ export async function getCompanyMonthlyTotals(year: number | undefined) {
             .select({
                 month: monthExpr,
                 totalApplicants: sql<number>`count(${schema.applicants.id})`,
-                uniqueApplicants: sql<number>`count(distinct ${UNIQUE_APPLICANT_KEY_EXPR})`,
+                uniqueApplicants: sql<number>`count(${schema.applicants.id}) - sum(case when ${statusIn(DUPLICATE_APPLICATION_STATUSES)} then 1 else 0 end)`,
                 validApplicants: sql<number>`sum(coalesce(${schema.applicants.isValidApplicant},0))`,
-                phoneAppointmentCount: sql<number>`
-                    sum(
-                        case
-                            when ${statusIn(PHONE_APPOINTMENT_STATUSES)} then 1
-                            else 0
-                        end
-                    )
-                `,
-                interviewScheduledCount: sql<number>`sum(case when coalesce(${schema.applicants.primaryScheduled}, 0) = 1 or coalesce(${schema.applicants.secScheduled}, 0) = 1 or coalesce(${schema.applicants.finalScheduled}, 0) = 1 then 1 else 0 end)`,
-                interviewConductedCount: sql<number>`sum(case when coalesce(${schema.applicants.primaryConducted}, 0) = 1 or coalesce(${schema.applicants.secConducted}, 0) = 1 or coalesce(${schema.applicants.finalConducted}, 0) = 1 then 1 else 0 end)`,
-                offered: sql<number>`
-                    sum(
-                        case
-                            when coalesce(${schema.applicants.offered},0) = 1
-                                or ${statusIn(OFFERED_STATUSES)}
-                            then 1
-                            else 0
-                        end
-                    )
-                `,
-                joined: sql<number>`
-                    sum(
-                        case
-                            when coalesce(${schema.applicants.joined},0) = 1
-                                or ${statusIn(JOINED_STATUSES)}
-                            then 1
-                            else 0
-                        end
-                    )
-                `,
-                preInterviewDeclinedCount: sql<number>`sum(case when coalesce(${schema.applicants.interviewDeclinedBefore}, 0) = 1 or coalesce(${schema.applicants.secDeclinedBefore}, 0) = 1 or coalesce(${schema.applicants.finalDeclinedBefore}, 0) = 1 then 1 else 0 end)`,
-                offerDeclined: sql<number>`
-                    sum(
-                        case
-                            when coalesce(${schema.applicants.offerDeclined},0) = 1
-                                or ${statusIn(OFFER_DECLINED_STATUSES)}
-                            then 1
-                            else 0
-                        end
-                    )
-                `,
-                interviewDateSetCount: sql<number>`sum(case when ${schema.applicants.primaryScheduledDate} is not null or ${schema.applicants.secScheduledDate} is not null or ${schema.applicants.finalScheduledDate} is not null then 1 else 0 end)`,
+                phoneAppointmentCount: sql<number>`sum(case when ${statusIn(PHONE_APPOINTMENT_FIXED_STATUSES)} then 1 else 0 end)`,
+                interviewScheduledCount: sql<number>`sum(case when ${schema.applicants.primaryScheduledDate} is not null then 1 else 0 end)`,
+                interviewConductedCount: sql<number>`sum(case when coalesce(${schema.applicants.primaryConducted},0) = 1 then 1 else 0 end)`,
+                offered: sql<number>`sum(case when ${statusIn(OFFERED_STATUSES)} then 1 else 0 end)`,
+                joined: sql<number>`sum(case when ${statusIn(JOINED_STATUSES)} then 1 else 0 end)`,
+                preInterviewDeclinedCount: sql<number>`sum(case when ${statusIn(PRIMARY_INTERVIEW_DECLINED_BEFORE_STATUSES)} then 1 else 0 end)`,
+                offerDeclined: sql<number>`sum(case when ${statusIn(OFFER_DECLINED_STATUSES)} then 1 else 0 end)`,
+                interviewDateSetCount: sql<number>`sum(case when ${schema.applicants.primaryScheduledDate} is not null then 1 else 0 end)`,
             })
             .from(schema.applicants)
             .where(filter)
@@ -516,11 +391,17 @@ export async function getCompanyMonthlyTotals(year: number | undefined) {
                 connectedApplicantCount: sql<number>`
                     sum(
                         case
-                            when coalesce(${schema.applicants.isValidApplicant}, 0) = 1
-                                and (
-                                    ${schema.applicants.connectedAt} is not null
-                                    or ${statusIn(CONNECTED_STATUS_CANDIDATES)}
-                                )
+                            when ${schema.applicants.connectedAt} is not null
+                            then 1
+                            else 0
+                        end
+                    )
+                `,
+                connectedValidApplicantCount: sql<number>`
+                    sum(
+                        case
+                            when ${schema.applicants.connectedAt} is not null
+                                and coalesce(${schema.applicants.isValidApplicant}, 0) = 1
                             then 1
                             else 0
                         end
@@ -529,9 +410,7 @@ export async function getCompanyMonthlyTotals(year: number | undefined) {
                 notConnectedCount: sql<number>`
                     sum(
                         case
-                            when coalesce(${schema.applicants.isValidApplicant}, 0) = 1
-                                and ${schema.applicants.connectedAt} is null
-                                and ${statusIn(NOT_CONNECTED_STATUSES)}
+                            when ${statusIn(NOT_CONNECTED_STATUSES)}
                             then 1
                             else 0
                         end
@@ -568,6 +447,7 @@ export async function getCompanyMonthlyTotals(year: number | undefined) {
             Number.parseInt(row.month, 10),
             {
                 connectedApplicantCount: Number(row.connectedApplicantCount || 0),
+                connectedValidApplicantCount: Number(row.connectedValidApplicantCount || 0),
                 notConnectedCount: Number(row.notConnectedCount || 0),
             },
         ]),
@@ -590,6 +470,7 @@ export async function getCompanyMonthlyTotals(year: number | undefined) {
         }
         const callMetric = callMetricMap.get(month) || {
             connectedApplicantCount: 0,
+            connectedValidApplicantCount: 0,
             notConnectedCount: 0,
         }
 
@@ -609,7 +490,7 @@ export async function getCompanyMonthlyTotals(year: number | undefined) {
             joined: base.joined,
             preInterviewDeclinedCount: base.preInterviewDeclinedCount,
             offerDeclined: base.offerDeclined,
-            connectedApplicantRate: formatRate(callMetric.connectedApplicantCount, base.validApplicants),
+            connectedApplicantRate: formatRate(callMetric.connectedValidApplicantCount, base.validApplicants),
             interviewScheduledRate: formatRate(base.interviewScheduledCount, base.validApplicants),
             interviewConductedRate: formatRate(base.interviewConductedCount, base.validApplicants),
             offerRate: formatRate(base.offered, base.validApplicants),
@@ -666,126 +547,44 @@ export async function getCompanyCaseYields(
                 companyName: schema.companies.name,
                 caseName: caseNameExpr,
                 totalApplicants: sql<number>`count(${schema.applicants.id})`,
-                uniqueApplicants: sql<number>`count(distinct ${UNIQUE_APPLICANT_KEY_EXPR})`,
+                uniqueApplicants: sql<number>`count(${schema.applicants.id}) - sum(case when ${statusIn(DUPLICATE_APPLICATION_STATUSES)} then 1 else 0 end)`,
                 validApplicants: sql<number>`sum(coalesce(${schema.applicants.isValidApplicant},0))`,
-                docDeclined: sql<number>`sum(coalesce(${schema.applicants.docDeclined},0))`,
-                docRejectedMK: sql<number>`
-                    sum(
-                        case
-                            when coalesce(${schema.applicants.docRejectedMK},0) = 1
-                                or ${statusIn(DOC_REJECTED_MK_STATUSES)}
-                            then 1
-                            else 0
-                        end
-                    )
-                `,
-                docRejectedClient: sql<number>`
-                    sum(
-                        case
-                            when coalesce(${schema.applicants.docRejectedClient},0) = 1
-                                or ${statusIn(DOC_REJECTED_CLIENT_STATUSES)}
-                            then 1
-                            else 0
-                        end
-                    )
-                `,
-                docRejected: sql<number>`
-                    sum(
-                        case
-                            when coalesce(${schema.applicants.docRejectedMK},0) = 1
-                                or coalesce(${schema.applicants.docRejectedClient},0) = 1
-                                or ${statusIn([...DOC_REJECTED_MK_STATUSES, ...DOC_REJECTED_CLIENT_STATUSES])}
-                            then 1
-                            else 0
-                        end
-                    )
-                `,
-                schedulingInterview: sql<number>`
-                    sum(
-                        case
-                            when coalesce(${schema.applicants.schedulingInterview},0) = 1
-                                or ${statusIn(SCHEDULING_INTERVIEW_STATUSES)}
-                            then 1
-                            else 0
-                        end
-                    )
-                `,
-                interviewDeclinedBefore: sql<number>`sum(coalesce(${schema.applicants.interviewDeclinedBefore},0) + coalesce(${schema.applicants.secDeclinedBefore},0) + coalesce(${schema.applicants.finalDeclinedBefore},0))`,
-                priScheduled: sql<number>`sum(coalesce(${schema.applicants.primaryScheduled},0))`,
-                priConducted: sql<number>`sum(coalesce(${schema.applicants.primaryConducted},0))`,
-                priNoShow: sql<number>`sum(coalesce(${schema.applicants.primaryNoShow},0))`,
-                primaryDeclinedAfter: sql<number>`sum(coalesce(${schema.applicants.primaryDeclinedAfter},0))`,
-                primaryRejected: sql<number>`sum(coalesce(${schema.applicants.primaryRejected},0))`,
-                secScheduled: sql<number>`sum(coalesce(${schema.applicants.secScheduled},0))`,
-                secConducted: sql<number>`sum(coalesce(${schema.applicants.secConducted},0))`,
+                docDeclined: sql<number>`sum(case when ${statusIn(DOC_DECLINED_STATUSES)} then 1 else 0 end)`,
+                docRejectedMK: sql<number>`sum(case when ${statusIn(DOC_REJECTED_MK_STATUSES)} then 1 else 0 end)`,
+                docRejectedClient: sql<number>`sum(case when ${statusIn(DOC_REJECTED_CLIENT_STATUSES)} then 1 else 0 end)`,
+                docRejected: sql<number>`sum(case when ${statusIn([...DOC_REJECTED_MK_STATUSES, ...DOC_REJECTED_CLIENT_STATUSES])} then 1 else 0 end)`,
+                schedulingInterview: sql<number>`sum(case when ${statusIn(COMPANY_INTERVIEW_SCHEDULING_STATUSES)} then 1 else 0 end)`,
+                interviewDeclinedBefore: sql<number>`sum(case when ${statusIn(PRIMARY_INTERVIEW_DECLINED_BEFORE_STATUSES)} then 1 else 0 end)`,
+                priScheduled: sql<number>`sum(case when ${schema.applicants.primaryScheduledDate} is not null then 1 else 0 end)`,
+                priConducted: sql<number>`sum(case when coalesce(${schema.applicants.primaryConducted},0) = 1 then 1 else 0 end)`,
+                priNoShow: sql<number>`sum(case when ${statusIn(PRIMARY_INTERVIEW_NO_SHOW_STATUSES)} then 1 else 0 end)`,
+                primaryDeclinedAfter: sql<number>`sum(case when ${statusIn(PRIMARY_INTERVIEW_DECLINED_AFTER_STATUSES)} then 1 else 0 end)`,
+                primaryRejected: sql<number>`sum(case when ${statusIn(PRIMARY_INTERVIEW_REJECTED_STATUSES)} then 1 else 0 end)`,
+                secScheduled: sql<number>`sum(case when ${schema.applicants.secScheduledDate} is not null then 1 else 0 end)`,
+                secConducted: sql<number>`sum(case when coalesce(${schema.applicants.secConducted},0) = 1 then 1 else 0 end)`,
                 secDeclinedBefore: sql<number>`sum(coalesce(${schema.applicants.secDeclinedBefore},0))`,
                 secNoShow: sql<number>`sum(coalesce(${schema.applicants.secNoShow},0))`,
                 secDeclinedAfter: sql<number>`sum(coalesce(${schema.applicants.secDeclinedAfter},0))`,
                 secRejected: sql<number>`sum(coalesce(${schema.applicants.secRejected},0))`,
-                finalScheduled: sql<number>`sum(coalesce(${schema.applicants.finalScheduled},0))`,
-                finalConducted: sql<number>`sum(coalesce(${schema.applicants.finalConducted},0))`,
+                finalScheduled: sql<number>`sum(case when ${schema.applicants.finalScheduledDate} is not null then 1 else 0 end)`,
+                finalConducted: sql<number>`sum(case when coalesce(${schema.applicants.finalConducted},0) = 1 then 1 else 0 end)`,
                 finalDeclinedBefore: sql<number>`sum(coalesce(${schema.applicants.finalDeclinedBefore},0))`,
                 finalNoShow: sql<number>`sum(coalesce(${schema.applicants.finalNoShow},0))`,
                 finalDeclinedAfter: sql<number>`sum(coalesce(${schema.applicants.finalDeclinedAfter},0))`,
                 finalRejected: sql<number>`sum(coalesce(${schema.applicants.finalRejected},0))`,
-                interviewScheduledCount: sql<number>`sum(case when coalesce(${schema.applicants.primaryScheduled}, 0) = 1 or coalesce(${schema.applicants.secScheduled}, 0) = 1 or coalesce(${schema.applicants.finalScheduled}, 0) = 1 then 1 else 0 end)`,
-                interviewPlannedCount: sql<number>`sum(coalesce(${schema.applicants.primaryScheduled},0) + coalesce(${schema.applicants.secScheduled},0) + coalesce(${schema.applicants.finalScheduled},0))`,
-                interviewConductedCount: sql<number>`sum(coalesce(${schema.applicants.primaryConducted},0) + coalesce(${schema.applicants.secConducted},0) + coalesce(${schema.applicants.finalConducted},0))`,
-                interviewConductedUniqueCount: sql<number>`sum(case when coalesce(${schema.applicants.primaryConducted}, 0) = 1 or coalesce(${schema.applicants.secConducted}, 0) = 1 or coalesce(${schema.applicants.finalConducted}, 0) = 1 then 1 else 0 end)`,
-                interviewDateSetCount: sql<number>`sum(case when ${schema.applicants.primaryScheduledDate} is not null or ${schema.applicants.secScheduledDate} is not null or ${schema.applicants.finalScheduledDate} is not null then 1 else 0 end)`,
-                preInterviewDeclinedCount: sql<number>`sum(case when coalesce(${schema.applicants.interviewDeclinedBefore}, 0) = 1 or coalesce(${schema.applicants.secDeclinedBefore}, 0) = 1 or coalesce(${schema.applicants.finalDeclinedBefore}, 0) = 1 then 1 else 0 end)`,
-                interviewNoShowCount: sql<number>`sum(coalesce(${schema.applicants.primaryNoShow},0) + coalesce(${schema.applicants.secNoShow},0) + coalesce(${schema.applicants.finalNoShow},0))`,
-                interviewDeclinedAfterCount: sql<number>`sum(coalesce(${schema.applicants.primaryDeclinedAfter},0) + coalesce(${schema.applicants.secDeclinedAfter},0) + coalesce(${schema.applicants.finalDeclinedAfter},0))`,
-                interviewRejectedCount: sql<number>`
-                    sum(
-                        case
-                            when coalesce(${schema.applicants.primaryRejected},0) = 1
-                                or coalesce(${schema.applicants.secRejected},0) = 1
-                                or coalesce(${schema.applicants.finalRejected},0) = 1
-                                or ${statusIn(INTERVIEW_REJECTED_STATUSES)}
-                            then 1
-                            else 0
-                        end
-                    )
-                `,
-                phoneAppointmentCount: sql<number>`
-                    sum(
-                        case
-                            when ${statusIn(PHONE_APPOINTMENT_STATUSES)} then 1
-                            else 0
-                        end
-                    )
-                `,
-                offered: sql<number>`
-                    sum(
-                        case
-                            when coalesce(${schema.applicants.offered},0) = 1
-                                or ${statusIn(OFFERED_STATUSES)}
-                            then 1
-                            else 0
-                        end
-                    )
-                `,
-                offerDeclined: sql<number>`
-                    sum(
-                        case
-                            when coalesce(${schema.applicants.offerDeclined},0) = 1
-                                or ${statusIn(OFFER_DECLINED_STATUSES)}
-                            then 1
-                            else 0
-                        end
-                    )
-                `,
-                joined: sql<number>`
-                    sum(
-                        case
-                            when coalesce(${schema.applicants.joined},0) = 1
-                                or ${statusIn(JOINED_STATUSES)}
-                            then 1
-                            else 0
-                        end
-                    )
-                `,
+                interviewScheduledCount: sql<number>`sum(case when ${schema.applicants.primaryScheduledDate} is not null then 1 else 0 end)`,
+                interviewPlannedCount: sql<number>`sum(case when ${statusIn(PRIMARY_INTERVIEW_PLANNED_STATUSES)} then 1 else 0 end)`,
+                interviewConductedCount: sql<number>`sum(case when coalesce(${schema.applicants.primaryConducted},0) = 1 then 1 else 0 end)`,
+                interviewConductedUniqueCount: sql<number>`sum(case when coalesce(${schema.applicants.primaryConducted},0) = 1 then 1 else 0 end)`,
+                interviewDateSetCount: sql<number>`sum(case when ${schema.applicants.primaryScheduledDate} is not null then 1 else 0 end)`,
+                preInterviewDeclinedCount: sql<number>`sum(case when ${statusIn(PRIMARY_INTERVIEW_DECLINED_BEFORE_STATUSES)} then 1 else 0 end)`,
+                interviewNoShowCount: sql<number>`sum(case when ${statusIn(PRIMARY_INTERVIEW_NO_SHOW_STATUSES)} then 1 else 0 end)`,
+                interviewDeclinedAfterCount: sql<number>`sum(case when ${statusIn(PRIMARY_INTERVIEW_DECLINED_AFTER_STATUSES)} then 1 else 0 end)`,
+                interviewRejectedCount: sql<number>`sum(case when ${statusIn(PRIMARY_INTERVIEW_REJECTED_STATUSES)} then 1 else 0 end)`,
+                phoneAppointmentCount: sql<number>`sum(case when ${statusIn(PHONE_APPOINTMENT_FIXED_STATUSES)} then 1 else 0 end)`,
+                offered: sql<number>`sum(case when ${statusIn(OFFERED_STATUSES)} then 1 else 0 end)`,
+                offerDeclined: sql<number>`sum(case when ${statusIn(OFFER_DECLINED_STATUSES)} then 1 else 0 end)`,
+                joined: sql<number>`sum(case when ${statusIn(JOINED_STATUSES)} then 1 else 0 end)`,
             })
             .from(schema.companies)
             .where(companyWhereClause)
@@ -799,11 +598,17 @@ export async function getCompanyCaseYields(
                 connectedApplicantCount: sql<number>`
                     sum(
                         case
-                            when coalesce(${schema.applicants.isValidApplicant}, 0) = 1
-                                and (
-                                    ${schema.applicants.connectedAt} is not null
-                                    or ${statusIn(CONNECTED_STATUS_CANDIDATES)}
-                                )
+                            when ${schema.applicants.connectedAt} is not null
+                            then 1
+                            else 0
+                        end
+                    )
+                `,
+                connectedValidApplicantCount: sql<number>`
+                    sum(
+                        case
+                            when ${schema.applicants.connectedAt} is not null
+                                and coalesce(${schema.applicants.isValidApplicant}, 0) = 1
                             then 1
                             else 0
                         end
@@ -812,9 +617,7 @@ export async function getCompanyCaseYields(
                 notConnectedCount: sql<number>`
                     sum(
                         case
-                            when coalesce(${schema.applicants.isValidApplicant}, 0) = 1
-                                and ${schema.applicants.connectedAt} is null
-                                and ${statusIn(NOT_CONNECTED_STATUSES)}
+                            when ${statusIn(NOT_CONNECTED_STATUSES)}
                             then 1
                             else 0
                         end
@@ -832,6 +635,7 @@ export async function getCompanyCaseYields(
             `${row.companyId}::${row.caseName}`,
             {
                 connectedApplicantCount: Number(row.connectedApplicantCount || 0),
+                connectedValidApplicantCount: Number(row.connectedValidApplicantCount || 0),
                 notConnectedCount: Number(row.notConnectedCount || 0),
             },
         ]),
@@ -845,6 +649,7 @@ export async function getCompanyCaseYields(
             const totalApplicants = Number(row.totalApplicants || 0)
             const key = `${row.companyId}::${caseName}`
             const connectedApplicantCount = callMetricMap.get(key)?.connectedApplicantCount || 0
+            const connectedValidApplicantCount = callMetricMap.get(key)?.connectedValidApplicantCount || 0
             const notConnectedCount = callMetricMap.get(key)?.notConnectedCount || 0
             const interviewScheduledCount = Number(row.interviewScheduledCount || 0)
             const interviewDateSetCount = Number(row.interviewDateSetCount || 0)
@@ -863,6 +668,7 @@ export async function getCompanyCaseYields(
                 validApplicants,
                 validApplicantRate: formatRate(validApplicants, totalApplicants),
                 connectedApplicantCount,
+                connectedValidApplicantCount,
                 notConnectedCount,
                 phoneAppointmentCount: Number(row.phoneAppointmentCount || 0),
                 docDeclined: Number(row.docDeclined || 0),
@@ -901,7 +707,7 @@ export async function getCompanyCaseYields(
                 offerPendingCount,
                 offerDeclined,
                 joined,
-                connectedApplicantRate: formatRate(connectedApplicantCount, validApplicants),
+                connectedApplicantRate: formatRate(connectedValidApplicantCount, validApplicants),
                 interviewScheduledRate: formatRate(interviewScheduledCount, validApplicants),
                 interviewConductedRate: formatRate(interviewConductedUniqueCount, validApplicants),
                 offerRate: formatRate(offered, validApplicants),
