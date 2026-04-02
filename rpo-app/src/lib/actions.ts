@@ -377,7 +377,19 @@ export async function deleteCompany(companyId: string) {
     }
 
     try {
+        // Fetch applicant IDs first so we can clean up child tables that reference applicants
+        const applicantRows = await db
+            .select({ id: schema.applicants.id })
+            .from(schema.applicants)
+            .where(eq(schema.applicants.companyId, trimmedCompanyId))
+        const applicantIds = applicantRows.map((r) => r.id)
+
         await db.transaction(async (tx) => {
+            // Delete child rows of applicants (call_log, interview) before deleting applicants
+            if (applicantIds.length > 0) {
+                await tx.delete(schema.callLogs).where(inArray(schema.callLogs.applicantId, applicantIds))
+                await tx.delete(schema.interviews).where(inArray(schema.interviews.applicantId, applicantIds))
+            }
             // Keep explicit cleanup so deletion works regardless of DB FK cascade settings.
             await tx.delete(schema.companyCaseTargets).where(eq(schema.companyCaseTargets.companyId, trimmedCompanyId))
             await tx.delete(schema.analysisCriteria).where(eq(schema.analysisCriteria.companyId, trimmedCompanyId))
@@ -389,7 +401,8 @@ export async function deleteCompany(companyId: string) {
         })
     } catch (error) {
         const detail = error instanceof Error ? error.message : String(error)
-        throw new Error(`企業削除に失敗しました: ${detail}`)
+        console.error("[deleteCompany] failed", { companyId: trimmedCompanyId, detail })
+        throw new Error(detail)
     }
 
     revalidatePath("/companies")

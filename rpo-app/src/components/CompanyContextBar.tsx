@@ -52,18 +52,13 @@ export default function CompanyContextBar({ companyId, companyName, sheetEntry, 
 
     function handleDelete() {
         startTransition(async () => {
-            try {
-                setDeleteError(null)
-                await deleteCompanyById(companyId)
+            setDeleteError(null)
+            const result = await deleteCompanyById(companyId)
+            if (result.error) {
+                setDeleteError(`企業削除に失敗しました: ${result.error}`)
+            } else {
                 setShowConfirm(false)
                 router.push("/companies")
-            } catch (error) {
-                console.error("[CompanyContextBar] failed to delete company", {
-                    companyId,
-                    error: error instanceof Error ? error.message : String(error),
-                })
-                const detail = error instanceof Error ? error.message : String(error)
-                setDeleteError(`企業削除に失敗しました: ${detail}`)
             }
         })
     }

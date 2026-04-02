@@ -9,9 +9,16 @@ export async function deleteCompanyAction(formData: FormData) {
     await deleteCompany(companyId)
 }
 
-export async function deleteCompanyById(companyId: string): Promise<void> {
+export async function deleteCompanyById(companyId: string): Promise<{ error?: string }> {
     "use server"
-    await deleteCompany(companyId)
+    try {
+        await deleteCompany(companyId)
+        return {}
+    } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        console.error("[deleteCompanyById] failed", { companyId, detail })
+        return { error: detail }
+    }
 }
 
 export async function deleteCaseAction(formData: FormData) {
