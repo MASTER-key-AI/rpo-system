@@ -384,6 +384,7 @@ export async function deleteCompany(companyId: string) {
             await tx.delete(schema.applicants).where(eq(schema.applicants.companyId, trimmedCompanyId))
             await tx.delete(schema.companyAliases).where(eq(schema.companyAliases.companyId, trimmedCompanyId))
             await tx.delete(schema.companySheets).where(eq(schema.companySheets.companyId, trimmedCompanyId))
+            await tx.delete(schema.companyCaseOptions).where(eq(schema.companyCaseOptions.companyId, trimmedCompanyId))
             await tx.delete(schema.companies).where(eq(schema.companies.id, trimmedCompanyId))
         })
     } catch (error) {
