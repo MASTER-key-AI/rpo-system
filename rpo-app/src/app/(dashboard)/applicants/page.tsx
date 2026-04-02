@@ -1,6 +1,7 @@
 import { getApplicants, getCompanies } from "@/lib/actions"
 import type { ApplicantFilters } from "@/lib/actions"
 import { getCompanySheetMap } from "@/lib/actions/sheets"
+import { getAllCompanyCaseOptions } from "@/lib/actions/caseOptions"
 import { Search } from "lucide-react"
 import CompanyFilterSelect from "./CompanyFilterSelect"
 import ApplicantFilterBar from "./ApplicantFilterBar"
@@ -60,10 +61,12 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
         { applicants, total, page: safeCurrentPage, totalPages },
         companies,
         sheetMap,
+        caseOptions,
     ] = await Promise.all([
         getApplicants(filters, currentPage, pageSize),
         getCompanies(),
         getCompanySheetMap(),
+        getAllCompanyCaseOptions(),
     ])
     const totalFrom = total === 0 ? 0 : ((safeCurrentPage - 1) * pageSize) + 1
     const totalTo = Math.min(safeCurrentPage * pageSize, total)
@@ -107,7 +110,7 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
                     <h1 className="text-2xl font-bold tracking-tight text-foreground">応募者管理</h1>
                     <p className="text-muted-foreground mt-0.5 text-[13px]">選考ステータスや面接日程を管理します</p>
                 </div>
-                <NewApplicantModal companies={companies} />
+                <NewApplicantModal companies={companies} caseOptions={caseOptions} />
             </div>
 
             {singleSelectedCompanyId && filterCompanyName && (

@@ -4,7 +4,7 @@ import { type ReactNode, useEffect, useMemo, useState, type ComponentType } from
 import Link from "next/link"
 import Image from "next/image"
 import { usePathname } from "next/navigation"
-import { BarChart2, Building2, ChevronLeft, ChevronRight, FileSpreadsheet, LayoutDashboard, Phone, Settings, Users } from "lucide-react"
+import { BarChart2, Briefcase, Building2, ChevronLeft, ChevronRight, FileSpreadsheet, LayoutDashboard, Phone, Settings, Users } from "lucide-react"
 
 type SidebarUser = {
     name?: string | null
@@ -25,6 +25,7 @@ const navItems: LinkItem[] = [
     { href: "/analysis", label: "企業分析", Icon: BarChart2 },
     { href: "/calls", label: "架電ログ", Icon: Phone },
     { href: "/admin/sheets", label: "シート管理", Icon: FileSpreadsheet },
+    { href: "/job-types", label: "職種管理", Icon: Briefcase },
 ]
 const adminNavItems: LinkItem[] = [
     { href: "/admin", label: "管理者画面", Icon: Settings },
@@ -71,6 +72,7 @@ export default function DashboardSidebarClient({
         if (href === "/companies") return pathname.startsWith("/companies")
         if (href === "/analysis") return pathname.startsWith("/analysis")
         if (href === "/calls") return pathname.startsWith("/calls")
+        if (href === "/job-types") return pathname.startsWith("/job-types")
         return pathname === href || pathname.startsWith(href + "/")
     }
 

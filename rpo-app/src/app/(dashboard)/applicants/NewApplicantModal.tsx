@@ -7,21 +7,26 @@ import type { CreateApplicantInput } from "@/lib/actions/applicant";
 import { normalizeCompanyName } from "@/lib/company-name";
 
 type Company = { id: string; name: string };
+type CaseOption = { id: string; caseName: string };
 
 type Props = {
     companies: Company[];
+    caseOptions?: Record<string, CaseOption[]>;
 };
 
 const GENDER_OPTIONS = ["", "男性", "女性", "その他・非公開"];
 
-export default function NewApplicantModal({ companies }: Props) {
+export default function NewApplicantModal({ companies, caseOptions = {} }: Props) {
     const [open, setOpen] = useState(false);
     const [isPending, startTransition] = useTransition();
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState(false);
     const [companySuggestions, setCompanySuggestions] = useState<Company[]>([]);
     const [companyInput, setCompanyInput] = useState("");
+    const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
     const [showSuggestions, setShowSuggestions] = useState(false);
+    const [caseNameMode, setCaseNameMode] = useState<"select" | "free">("select");
+    const [caseNameFree, setCaseNameFree] = useState("");
     const formRef = useRef<HTMLFormElement>(null);
     const suggestRef = useRef<HTMLDivElement>(null);
 
@@ -35,6 +40,9 @@ export default function NewApplicantModal({ companies }: Props) {
 
     function handleCompanyInputChange(value: string) {
         setCompanyInput(value);
+        setSelectedCompanyId(null);
+        setCaseNameMode("select");
+        setCaseNameFree("");
         if (value.trim().length === 0) {
             setCompanySuggestions([]);
             setShowSuggestions(false);
@@ -48,10 +56,13 @@ export default function NewApplicantModal({ companies }: Props) {
         setShowSuggestions(filtered.length > 0);
     }
 
-    function handleSelectCompany(name: string) {
-        setCompanyInput(name);
+    function handleSelectCompany(company: Company) {
+        setCompanyInput(company.name);
+        setSelectedCompanyId(company.id);
         setShowSuggestions(false);
         setCompanySuggestions([]);
+        setCaseNameMode("select");
+        setCaseNameFree("");
     }
 
     function handleOpen() {
@@ -59,7 +70,10 @@ export default function NewApplicantModal({ companies }: Props) {
         setError(null);
         setSuccess(false);
         setCompanyInput("");
+        setSelectedCompanyId(null);
         setShowSuggestions(false);
+        setCaseNameMode("select");
+        setCaseNameFree("");
     }
 
     function handleClose() {
@@ -68,7 +82,10 @@ export default function NewApplicantModal({ companies }: Props) {
         setError(null);
         setSuccess(false);
         setCompanyInput("");
+        setSelectedCompanyId(null);
         setShowSuggestions(false);
+        setCaseNameMode("select");
+        setCaseNameFree("");
         formRef.current?.reset();
     }
 
@@ -83,12 +100,14 @@ export default function NewApplicantModal({ companies }: Props) {
         }
 
         const fd = new FormData(e.currentTarget);
+        const rawCaseName = fd.get("caseName") as string
+        const resolvedCaseName = rawCaseName === "__free__" ? undefined : rawCaseName || undefined
         const input: CreateApplicantInput = {
             name: fd.get("name") as string,
             furigana: (fd.get("furigana") as string) || undefined,
             companyName: companyInput,
             appliedAt: fd.get("appliedAt") as string,
-            caseName: (fd.get("caseName") as string) || undefined,
+            caseName: resolvedCaseName,
             appliedJob: (fd.get("appliedJob") as string) || undefined,
             appliedLocation: (fd.get("appliedLocation") as string) || undefined,
             email: (fd.get("email") as string) || undefined,
@@ -233,7 +252,7 @@ export default function NewApplicantModal({ companies }: Props) {
                                                     <button
                                                         key={c.id}
                                                         type="button"
-                                                        onMouseDown={() => handleSelectCompany(c.name)}
+                                                        onMouseDown={() => handleSelectCompany(c)}
                                                         className="w-full text-left px-3 py-2 text-[13px] hover:bg-muted transition-colors"
                                                     >
                                                         {c.name}
@@ -272,12 +291,56 @@ export default function NewApplicantModal({ companies }: Props) {
                                 <div className="grid grid-cols-2 gap-3">
                                     <div className="space-y-1">
                                         <label className="text-[12px] font-medium text-foreground">案件名</label>
-                                        <input
-                                            type="text"
-                                            name="caseName"
-                                            placeholder="営業職（東京）"
-                                            className="w-full h-9 px-3 rounded-lg border border-input bg-background text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring/50 transition-all"
-                                        />
+                                        {(() => {
+                                            const opts = selectedCompanyId ? (caseOptions[selectedCompanyId] ?? []) : []
+                                            if (opts.length > 0 && caseNameMode === "select") {
+                                                return (
+                                                    <div className="space-y-1">
+                                                        <div className="relative">
+                                                            <select
+                                                                name="caseName"
+                                                                className="w-full h-9 pl-3 pr-8 rounded-lg border border-input bg-background text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring/50 transition-all"
+                                                            >
+                                                                <option value="">選択なし</option>
+                                                                {opts.map((o) => (
+                                                                    <option key={o.id} value={o.caseName}>{o.caseName}</option>
+                                                                ))}
+                                                                <option value="__free__">その他（直接入力）</option>
+                                                            </select>
+                                                            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setCaseNameMode("free")}
+                                                            className="text-[11px] text-muted-foreground hover:text-foreground underline cursor-pointer"
+                                                        >
+                                                            直接入力に切り替え
+                                                        </button>
+                                                    </div>
+                                                )
+                                            }
+                                            return (
+                                                <div className="space-y-1">
+                                                    <input
+                                                        type="text"
+                                                        name="caseName"
+                                                        value={caseNameFree}
+                                                        onChange={(e) => setCaseNameFree(e.target.value)}
+                                                        placeholder="営業職（東京）"
+                                                        className="w-full h-9 px-3 rounded-lg border border-input bg-background text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring/50 transition-all"
+                                                    />
+                                                    {opts.length > 0 && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => { setCaseNameMode("select"); setCaseNameFree("") }}
+                                                            className="text-[11px] text-muted-foreground hover:text-foreground underline cursor-pointer"
+                                                        >
+                                                            選択肢から選ぶ
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            )
+                                        })()}
                                     </div>
                                     <div className="space-y-1">
                                         <label className="text-[12px] font-medium text-foreground">応募職種名</label>

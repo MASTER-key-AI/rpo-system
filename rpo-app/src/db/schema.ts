@@ -199,6 +199,16 @@ export const companyCaseTargets = sqliteTable("company_case_target", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
 });
 
+export const companyCaseOptions = sqliteTable("company_case_options", {
+  id: text("id").primaryKey(),
+  companyId: text("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  caseName: text("case_name").notNull(),
+  displayOrder: integer("display_order").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
+});
+
 export const analysisCriteria = sqliteTable("analysis_criteria", {
   id: text("id").primaryKey(),
   companyId: text("company_id").references(() => companies.id, { onDelete: "cascade" }),
