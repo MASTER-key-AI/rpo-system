@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useTransition } from "react"
-import { ChevronDown, ChevronRight, Plus, Trash2, GripVertical, ArrowUp, ArrowDown } from "lucide-react"
+import { useRef, useState, useTransition } from "react"
+import { ChevronDown, ChevronRight, Plus, Trash2, GripVertical, ArrowUp, ArrowDown, Search, X } from "lucide-react"
 import { addCompanyCaseOption, deleteCompanyCaseOption, reorderCompanyCaseOption } from "@/lib/actions/caseOptions"
 
 type Company = { id: string; name: string }
@@ -23,6 +23,13 @@ export default function JobTypesClient({ companies, caseOptions }: Props) {
     const [newCaseName, setNewCaseName] = useState("")
     const [isPending, startTransition] = useTransition()
     const [error, setError] = useState<string | null>(null)
+
+    // Company search combobox
+    const [searchInput, setSearchInput] = useState("")
+    const [showDropdown, setShowDropdown] = useState(false)
+    const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
+    const cardRefs = useRef<Record<string, HTMLDivElement | null>>({})
+    const searchRef = useRef<HTMLInputElement>(null)
 
     // Local optimistic state
     const [localOptions, setLocalOptions] = useState<Record<string, CaseOption[]>>(() => {
@@ -119,15 +126,102 @@ export default function JobTypesClient({ companies, caseOptions }: Props) {
         return a.name.localeCompare(b.name, "ja")
     })
 
+    const searchSuggestions = searchInput.trim()
+        ? sortedCompanies.filter((c) => c.name.toLowerCase().includes(searchInput.trim().toLowerCase())).slice(0, 10)
+        : []
+
+    function handleSelectCompany(company: Company) {
+        setSearchInput(company.name)
+        setSelectedCompanyId(company.id)
+        setShowDropdown(false)
+        // expand and scroll
+        setExpanded((prev) => new Set([...prev, company.id]))
+        setTimeout(() => {
+            cardRefs.current[company.id]?.scrollIntoView({ behavior: "smooth", block: "start" })
+        }, 50)
+    }
+
+    function handleClearSearch() {
+        setSearchInput("")
+        setSelectedCompanyId(null)
+        setShowDropdown(false)
+        searchRef.current?.focus()
+    }
+
+    const visibleCompanies = selectedCompanyId
+        ? sortedCompanies.filter((c) => c.id === selectedCompanyId)
+        : sortedCompanies
+
     return (
         <div className="space-y-2">
+            {/* 企業名検索 */}
+            <div className="relative w-full max-w-sm mb-4">
+                <div className="relative flex items-center">
+                    <Search className="absolute left-3 w-4 h-4 text-muted-foreground pointer-events-none" />
+                    <input
+                        ref={searchRef}
+                        type="text"
+                        value={searchInput}
+                        onChange={(e) => {
+                            setSearchInput(e.target.value)
+                            setSelectedCompanyId(null)
+                            setShowDropdown(true)
+                        }}
+                        onFocus={() => { if (searchInput.trim()) setShowDropdown(true) }}
+                        onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+                        onKeyDown={(e) => {
+                            if (e.key === "Escape") handleClearSearch()
+                            if (e.key === "Enter" && searchSuggestions.length === 1) handleSelectCompany(searchSuggestions[0])
+                        }}
+                        placeholder="企業名で検索..."
+                        className="w-full h-9 pl-9 pr-8 rounded-lg border border-input bg-background text-[13px] placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring/50 transition-all"
+                    />
+                    {searchInput && (
+                        <button
+                            type="button"
+                            onClick={handleClearSearch}
+                            className="absolute right-2.5 w-5 h-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                        >
+                            <X className="w-3.5 h-3.5" />
+                        </button>
+                    )}
+                </div>
+                {showDropdown && searchSuggestions.length > 0 && (
+                    <div className="absolute z-20 top-full mt-1 w-full bg-popover border border-border rounded-lg shadow-lg overflow-hidden">
+                        {searchSuggestions.map((c) => (
+                            <button
+                                key={c.id}
+                                type="button"
+                                onMouseDown={() => handleSelectCompany(c)}
+                                className="w-full text-left px-3 py-2 text-[13px] hover:bg-muted transition-colors flex items-center justify-between gap-2"
+                            >
+                                <span className="truncate">{c.name}</span>
+                                <span className="text-[11px] text-muted-foreground shrink-0">
+                                    {(localOptions[c.id]?.length ?? 0) > 0
+                                        ? `${localOptions[c.id].length}件`
+                                        : "未設定"}
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+                )}
+                {selectedCompanyId && (
+                    <p className="mt-1.5 text-[11px] text-muted-foreground">
+                        1件を表示中 ·{" "}
+                        <button type="button" onClick={handleClearSearch} className="underline hover:text-foreground cursor-pointer">
+                            全て表示
+                        </button>
+                    </p>
+                )}
+            </div>
+
             {error && (
                 <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2 text-[12px] text-destructive">
                     {error}
                 </div>
             )}
 
-            {sortedCompanies.map((company) => {
+            {visibleCompanies.map((company) => {
                 const options = [...(localOptions[company.id] ?? [])].sort((a, b) => a.displayOrder - b.displayOrder)
                 const isExpanded = expanded.has(company.id)
                 const isAdding = addingFor === company.id
@@ -135,6 +229,7 @@ export default function JobTypesClient({ companies, caseOptions }: Props) {
                 return (
                     <div
                         key={company.id}
+                        ref={(el) => { cardRefs.current[company.id] = el }}
                         className="bg-card border border-border rounded-xl overflow-hidden"
                         style={{ boxShadow: "var(--shadow-soft)" }}
                     >
