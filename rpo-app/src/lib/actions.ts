@@ -384,21 +384,19 @@ export async function deleteCompany(companyId: string) {
             .where(eq(schema.applicants.companyId, trimmedCompanyId))
         const applicantIds = applicantRows.map((r) => r.id)
 
-        await db.transaction(async (tx) => {
-            // Delete child rows of applicants (call_log, interview) before deleting applicants
-            if (applicantIds.length > 0) {
-                await tx.delete(schema.callLogs).where(inArray(schema.callLogs.applicantId, applicantIds))
-                await tx.delete(schema.interviews).where(inArray(schema.interviews.applicantId, applicantIds))
-            }
-            // Keep explicit cleanup so deletion works regardless of DB FK cascade settings.
-            await tx.delete(schema.companyCaseTargets).where(eq(schema.companyCaseTargets.companyId, trimmedCompanyId))
-            await tx.delete(schema.analysisCriteria).where(eq(schema.analysisCriteria.companyId, trimmedCompanyId))
-            await tx.delete(schema.applicants).where(eq(schema.applicants.companyId, trimmedCompanyId))
-            await tx.delete(schema.companyAliases).where(eq(schema.companyAliases.companyId, trimmedCompanyId))
-            await tx.delete(schema.companySheets).where(eq(schema.companySheets.companyId, trimmedCompanyId))
-            await tx.delete(schema.companyCaseOptions).where(eq(schema.companyCaseOptions.companyId, trimmedCompanyId))
-            await tx.delete(schema.companies).where(eq(schema.companies.id, trimmedCompanyId))
-        })
+        // Delete child rows of applicants before deleting applicants
+        if (applicantIds.length > 0) {
+            await db.delete(schema.callLogs).where(inArray(schema.callLogs.applicantId, applicantIds))
+            await db.delete(schema.interviews).where(inArray(schema.interviews.applicantId, applicantIds))
+        }
+        // Delete company-level related rows
+        await db.delete(schema.companyCaseTargets).where(eq(schema.companyCaseTargets.companyId, trimmedCompanyId))
+        await db.delete(schema.analysisCriteria).where(eq(schema.analysisCriteria.companyId, trimmedCompanyId))
+        await db.delete(schema.applicants).where(eq(schema.applicants.companyId, trimmedCompanyId))
+        await db.delete(schema.companyAliases).where(eq(schema.companyAliases.companyId, trimmedCompanyId))
+        await db.delete(schema.companySheets).where(eq(schema.companySheets.companyId, trimmedCompanyId))
+        await db.delete(schema.companyCaseOptions).where(eq(schema.companyCaseOptions.companyId, trimmedCompanyId))
+        await db.delete(schema.companies).where(eq(schema.companies.id, trimmedCompanyId))
     } catch (error) {
         const detail = error instanceof Error ? error.message : String(error)
         console.error("[deleteCompany] failed", { companyId: trimmedCompanyId, detail })
