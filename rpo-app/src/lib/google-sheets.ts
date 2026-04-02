@@ -1,7 +1,9 @@
-import { getAccessToken } from "@/lib/google-auth"
+﻿import { getAccessToken } from "@/lib/google-auth"
 
 const TEMPLATE_SPREADSHEET_ID = "1-ixh_LBlJJnD8iwntYZb2hMciA1HwIpvmSM5U037sWk"
 const SHARED_DRIVE_ID = "0ALFUlmB8FFeCUk9PVA"
+const TARGET_SHEET_GID = 465742923
+const TARGET_SHEET_TITLE = "応募者一覧"
 
 type CopyResult = {
     spreadsheetId: string
@@ -10,9 +12,50 @@ type CopyResult = {
     spreadsheetUrl: string
 }
 
+type SheetProperties = {
+    sheetId: number
+    title: string
+}
+
+async function renameSheetTitle(
+    token: string,
+    spreadsheetId: string,
+    sheetId: number,
+    title: string
+): Promise<void> {
+    const response = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`,
+        {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                requests: [
+                    {
+                        updateSheetProperties: {
+                            properties: {
+                                sheetId,
+                                title,
+                            },
+                            fields: "title",
+                        },
+                    },
+                ],
+            }),
+        }
+    )
+
+    if (!response.ok) {
+        const text = await response.text()
+        throw new Error(`Failed to rename sheet tab: ${response.status} ${text}`)
+    }
+}
+
 export async function copyTemplateSpreadsheet(companyName: string): Promise<CopyResult> {
     const token = await getAccessToken()
-    const title = `【RPO】${companyName}_候補者管理`
+    const title = `【RPO】${companyName}_応募者管理`
 
     // 1. Copy template via Drive API (to Shared Drive)
     const copyResponse = await fetch(
@@ -32,10 +75,10 @@ export async function copyTemplateSpreadsheet(companyName: string): Promise<Copy
         throw new Error(`Failed to copy template spreadsheet: ${copyResponse.status} ${text}`)
     }
 
-    const copyData = await copyResponse.json() as { id: string }
+    const copyData = (await copyResponse.json()) as { id: string }
     const spreadsheetId = copyData.id
 
-    // 2. Get first sheet's GID via Sheets API
+    // 2. Get target sheet's GID via Sheets API
     const sheetsResponse = await fetch(
         `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`,
         {
@@ -48,19 +91,29 @@ export async function copyTemplateSpreadsheet(companyName: string): Promise<Copy
         throw new Error(`Failed to get sheet properties: ${sheetsResponse.status} ${text}`)
     }
 
-    const sheetsData = await sheetsResponse.json() as {
-        sheets: Array<{ properties: { sheetId: number; title: string } }>
+    const sheetsData = (await sheetsResponse.json()) as {
+        sheets: Array<{ properties: SheetProperties }>
     }
 
-    const targetSheet = sheetsData.sheets.find(s => s.properties.sheetId === 465742923)?.properties
-        ?? sheetsData.sheets[0]?.properties
-    const gid = targetSheet?.sheetId ?? 465742923
-    const sheetName = targetSheet?.title ?? null
+    const targetSheet =
+        sheetsData.sheets.find((s) => s.properties.sheetId === TARGET_SHEET_GID)?.properties ??
+        sheetsData.sheets[0]?.properties
+
+    if (!targetSheet) {
+        throw new Error("Failed to detect target sheet tab in copied spreadsheet")
+    }
+
+    const gid = targetSheet.sheetId
+
+    // 3. Ensure the tab title is standardized.
+    if (targetSheet.title !== TARGET_SHEET_TITLE) {
+        await renameSheetTitle(token, spreadsheetId, gid, TARGET_SHEET_TITLE)
+    }
 
     return {
         spreadsheetId,
         gid,
-        sheetName,
+        sheetName: TARGET_SHEET_TITLE,
         spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit#gid=${gid}`,
     }
 }
