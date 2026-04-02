@@ -196,7 +196,7 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-border/40">
-                            <ApplicantsTableClient applicants={applicants} sheetMap={sheetMap} />
+                            <ApplicantsTableClient applicants={applicants} sheetMap={sheetMap} caseOptions={caseOptions} />
                         </tbody>
                     </table>
                 </div>

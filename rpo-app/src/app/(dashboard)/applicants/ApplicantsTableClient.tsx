@@ -44,9 +44,12 @@ type SheetEntry = {
     sheetName: string | null
 }
 
+type CaseOption = { id: string; caseName: string }
+
 type Props = {
     applicants: Applicant[]
     sheetMap?: Record<string, SheetEntry>
+    caseOptions?: Record<string, CaseOption[]>
 }
 
 function toInputDateValue(value: string | number | Date | null | undefined) {
@@ -127,7 +130,7 @@ function calcAge(dateValue: string | number | Date | null | undefined) {
 
 const stickyBase = "sticky bg-card/95 backdrop-blur-sm z-10"
 
-export default function ApplicantsTableClient({ applicants, sheetMap = {} }: Props) {
+export default function ApplicantsTableClient({ applicants, sheetMap = {}, caseOptions = {} }: Props) {
     const [rows, setRows] = useState(applicants)
     const [birthDateInputs, setBirthDateInputs] = useState<Record<string, string>>({})
     const [pendingIds, setPendingIds] = useState<Set<string>>(new Set())
@@ -203,18 +206,45 @@ export default function ApplicantsTableClient({ applicants, sheetMap = {} }: Pro
                         </td>
                         {/* C: 案件名 (sticky) */}
                         <td className={`px-3 py-2 left-[250px] min-w-[140px] ${stickyBase}`}>
-                            <input
-                                defaultValue={row.caseName ?? ""}
-                                onBlur={(event) =>
-                                    updateRow(
-                                        row.id,
-                                        { caseName: event.currentTarget.value || null },
-                                        { caseName: event.currentTarget.value || null },
+                            {(() => {
+                                const opts = caseOptions[row.companyId] ?? []
+                                if (opts.length > 0) {
+                                    return (
+                                        <select
+                                            key={row.id}
+                                            defaultValue={row.caseName ?? ""}
+                                            onChange={(event) =>
+                                                updateRow(
+                                                    row.id,
+                                                    { caseName: event.currentTarget.value || null },
+                                                    { caseName: event.currentTarget.value || null },
+                                                )
+                                            }
+                                            disabled={isRowPending}
+                                            className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring/40 transition-colors duration-150 cursor-pointer"
+                                        >
+                                            <option value="">-</option>
+                                            {opts.map((o) => (
+                                                <option key={o.id} value={o.caseName}>{o.caseName}</option>
+                                            ))}
+                                        </select>
                                     )
                                 }
-                                disabled={isRowPending}
-                                className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring/40 transition-colors duration-150"
-                            />
+                                return (
+                                    <input
+                                        defaultValue={row.caseName ?? ""}
+                                        onBlur={(event) =>
+                                            updateRow(
+                                                row.id,
+                                                { caseName: event.currentTarget.value || null },
+                                                { caseName: event.currentTarget.value || null },
+                                            )
+                                        }
+                                        disabled={isRowPending}
+                                        className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring/40 transition-colors duration-150"
+                                    />
+                                )
+                            })()}
                         </td>
                         {/* D: 氏名 (sticky) */}
                         <td className={`px-3 py-2 left-[390px] min-w-[180px] border-r border-border/50 ${stickyBase}`}>
