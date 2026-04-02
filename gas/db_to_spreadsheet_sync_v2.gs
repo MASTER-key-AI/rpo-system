@@ -197,7 +197,7 @@ var SyncApp = (function () {
     var allRecords = [];
     for (var i = 0; i < group.companies.length; i++) {
       var co = group.companies[i];
-      var records = fetchAllApplicants_(co.companyName);
+      var records = fetchAllApplicants_(co);
       // 各レコードに会社名を付与
       for (var j = 0; j < records.length; j++) {
         records[j]._companyName = co.companyName;
@@ -248,11 +248,13 @@ var SyncApp = (function () {
 
   /* --- API通信 --- */
 
-  function fetchAllApplicants_(companyName) {
+  function fetchAllApplicants_(company) {
     var url = getProp_(CONFIG.properties.apiUrl);
     var apiKey = getProp_(CONFIG.properties.apiKey);
     var allRecords = [];
     var cursor = '';
+    var companyName = company && company.companyName ? String(company.companyName) : '';
+    var companyId = company && company.companyId ? String(company.companyId) : '';
 
     for (var page = 0; page < CONFIG.api.maxPages; page++) {
       if (isTimeUp_()) {
@@ -261,9 +263,10 @@ var SyncApp = (function () {
       }
 
       var payload = {
-        companyName: companyName,
         pageSize: CONFIG.api.pageSize,
       };
+      if (companyId) payload.companyId = companyId;
+      if (companyName) payload.companyName = companyName;
       if (cursor) payload.cursor = cursor;
 
       var body = apiPost_(url, apiKey, payload);

@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useTransition, useRef } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { UserPlus, X, Loader2, ChevronDown, Building2, Calendar, User } from "lucide-react";
 import { createApplicant } from "@/lib/actions/applicant";
 import type { CreateApplicantInput } from "@/lib/actions/applicant";
+import { normalizeCompanyName } from "@/lib/company-name";
 
 type Company = { id: string; name: string };
 
@@ -25,6 +26,12 @@ export default function NewApplicantModal({ companies }: Props) {
     const suggestRef = useRef<HTMLDivElement>(null);
 
     const today = new Date().toISOString().slice(0, 10);
+    const knownCompanyNames = useMemo(
+        () => new Set(companies.map((c) => normalizeCompanyName(c.name))),
+        [companies],
+    );
+    const normalizedCompanyInput = normalizeCompanyName(companyInput || "");
+    const isNewCompanyName = normalizedCompanyInput.length > 0 && !knownCompanyNames.has(normalizedCompanyInput);
 
     function handleCompanyInputChange(value: string) {
         setCompanyInput(value);
@@ -68,6 +75,12 @@ export default function NewApplicantModal({ companies }: Props) {
     function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
         setError(null);
+        if (isNewCompanyName) {
+            const ok = window.confirm(
+                "新しい企業名です。応募者登録後に「管理 > シート設定」でスプレッドシート連携を設定してください。設定後の定期同期で、過去応募者も含めて転記されます。\n\nこのまま登録しますか？",
+            );
+            if (!ok) return;
+        }
 
         const fd = new FormData(e.currentTarget);
         const input: CreateApplicantInput = {
@@ -232,6 +245,12 @@ export default function NewApplicantModal({ companies }: Props) {
                                     <p className="text-[11px] text-muted-foreground">
                                         既存企業名を入力すると自動でマッチします。新企業名は自動作成されます。
                                     </p>
+                                    {isNewCompanyName && (
+                                        <div className="mt-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+                                            この企業名は新規です。応募者登録後に「管理 &gt; シート設定」でスプレッドシート連携を設定してください。
+                                            設定後の定期同期で、過去応募者も含めてシートに転記されます。
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* 応募日 */}

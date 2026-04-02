@@ -118,6 +118,16 @@ describe("POST /api/sync/applicants", () => {
 
             expect(res.status).not.toBe(400)
         })
+
+        it("accepts companyId without companyName", async () => {
+            mockDb._selectChain.get.mockResolvedValueOnce({ id: "c1", name: "TestCompany" })
+            mockDb._selectChain.all.mockResolvedValueOnce([])
+
+            const req = createPostRequest("/api/sync/applicants", { companyId: "c1" })
+            const res = await POST(req)
+
+            expect(res.status).toBe(200)
+        })
     })
 
     describe("Company Resolution", () => {
@@ -159,6 +169,35 @@ describe("POST /api/sync/applicants", () => {
 
             expect(body.data.matchedCompanies).toContain("TestCompany")
             expect(body.data.resolvedCompanies).toContain("TestCompany")
+        })
+
+        it("returns 404 when companyId does not exist", async () => {
+            mockDb._selectChain.get.mockResolvedValueOnce(undefined)
+
+            const req = createPostRequest("/api/sync/applicants", { companyId: "missing-company-id" })
+            const res = await POST(req)
+            const body = await res.json()
+
+            expect(res.status).toBe(404)
+            expect(body.error).toContain("Company not found by id")
+        })
+
+        it("prioritizes companyId when both companyId and companyName are provided", async () => {
+            mockDb._selectChain.get.mockResolvedValueOnce({ id: "c1", name: "Registered Company" })
+            mockDb._selectChain.all.mockResolvedValueOnce([TEST_APPLICANT_ROW])
+
+            const req = createPostRequest("/api/sync/applicants", {
+                companyId: "c1",
+                companyName: "Mismatched Name",
+                limit: 10,
+            })
+            const res = await POST(req)
+            const body = await res.json()
+
+            expect(res.status).toBe(200)
+            expect(body.data.resolutionStrategy).toBe("exact_id")
+            expect(body.data.companyId).toBe("c1")
+            expect(body.data.records.length).toBe(1)
         })
     })
 

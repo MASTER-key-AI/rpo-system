@@ -14,6 +14,8 @@ const DEFAULT_PAGE_SIZE = 200
 export const runtime = "nodejs"
 
 type SyncRequestPayload = {
+    companyId?: unknown
+    company_id?: unknown
     companyCode?: unknown
     companyName?: unknown
     name?: unknown
@@ -77,51 +79,85 @@ export async function POST(request: NextRequest) {
         }
 
         const payload = payloadResult.value
+        const companyId = normalizeText_(payload.companyId ?? payload.company_id)
         const companyName = normalizeText_(
             payload.companyName ?? payload.name ?? payload.company ?? payload.company_name ?? null
         )
         const companyCode = normalizeText_(payload.companyCode)
 
-        if (!companyName) {
+        if (!companyId && !companyName) {
             return NextResponse.json(
-                { success: false, error: "company is required" },
+                { success: false, error: "companyId or company is required" },
                 { status: 400 }
             )
         }
 
-        const allCompanies = await db
-            .select({ id: schema.companies.id, name: schema.companies.name })
-            .from(schema.companies)
-            .all()
-
-        const resolution = resolveCompanies_(allCompanies, companyName, companyCode)
-        const resolvedCompanies = resolution.companies
-        if (!resolvedCompanies.length) {
-            return NextResponse.json(
-                {
-                    success: false,
-                    error: `Company not found: ${companyName}`,
-                    companyName,
-                    companyCode,
-                    matchedCompanies: [],
-                    resolutionStrategy: resolution.strategy,
-                },
-                { status: 404 }
-            )
+        let resolution: CompanyResolutionResult = {
+            companies: [],
+            allowMultiple: false,
+            strategy: "",
         }
+        let resolvedCompanies: CompanyRow[] = []
 
-        if (!resolution.allowMultiple && resolvedCompanies.length > 1) {
-            return NextResponse.json(
-                {
-                    success: false,
-                    error: `Ambiguous company mapping: ${companyName}`,
-                    companyName,
-                    companyCode,
-                    matchedCompanies: resolvedCompanies.map((company) => company.name),
-                    resolutionStrategy: resolution.strategy,
-                },
-                { status: 409 }
-            )
+        if (companyId) {
+            const companyById = await db
+                .select({ id: schema.companies.id, name: schema.companies.name })
+                .from(schema.companies)
+                .where(eq(schema.companies.id, companyId))
+                .get()
+            if (!companyById) {
+                return NextResponse.json(
+                    {
+                        success: false,
+                        error: `Company not found by id: ${companyId}`,
+                        companyId,
+                        matchedCompanies: [],
+                        resolutionStrategy: "exact_id",
+                    },
+                    { status: 404 }
+                )
+            }
+            resolvedCompanies = [companyById]
+            resolution = {
+                companies: resolvedCompanies,
+                allowMultiple: false,
+                strategy: "exact_id",
+            }
+        } else {
+            const allCompanies = await db
+                .select({ id: schema.companies.id, name: schema.companies.name })
+                .from(schema.companies)
+                .all()
+
+            resolution = resolveCompanies_(allCompanies, companyName, companyCode)
+            resolvedCompanies = resolution.companies
+            if (!resolvedCompanies.length) {
+                return NextResponse.json(
+                    {
+                        success: false,
+                        error: `Company not found: ${companyName}`,
+                        companyName,
+                        companyCode,
+                        matchedCompanies: [],
+                        resolutionStrategy: resolution.strategy,
+                    },
+                    { status: 404 }
+                )
+            }
+
+            if (!resolution.allowMultiple && resolvedCompanies.length > 1) {
+                return NextResponse.json(
+                    {
+                        success: false,
+                        error: `Ambiguous company mapping: ${companyName}`,
+                        companyName,
+                        companyCode,
+                        matchedCompanies: resolvedCompanies.map((company) => company.name),
+                        resolutionStrategy: resolution.strategy,
+                    },
+                    { status: 409 }
+                )
+            }
         }
 
         const updatedAfter = parseDate_(payload.updatedAfter || payload.updated_after)
@@ -202,6 +238,7 @@ export async function POST(request: NextRequest) {
                     matchedCompanies: resolvedCompanies.map((company) => company.name),
                     resolvedCompanies: resolvedCompanies.map((company) => company.name),
                     resolutionStrategy: resolution.strategy,
+                    companyId: resolvedCompanies[0]?.id || "",
                 },
             },
             { status: 200 }
