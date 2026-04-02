@@ -2,8 +2,8 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useTransition, useState } from "react"
-import { Building2, ExternalLink, Users, BarChart3, Phone, Trash2 } from "lucide-react"
+import { useState, useTransition } from "react"
+import { BarChart3, Building2, ExternalLink, Phone, Trash2, Users } from "lucide-react"
 import { deleteCompanyById } from "@/app/(dashboard)/companies/actions"
 
 type SheetEntry = {
@@ -34,7 +34,7 @@ export default function CompanyContextBar({ companyId, companyName, sheetEntry, 
             key: "applicants" as const,
             href: `/applicants?companyId=${companyId}`,
             icon: Users,
-            label: "応募者",
+            label: "応募者一覧",
         },
         {
             key: "companies" as const,
@@ -62,7 +62,8 @@ export default function CompanyContextBar({ companyId, companyName, sheetEntry, 
                     companyId,
                     error: error instanceof Error ? error.message : String(error),
                 })
-                setDeleteError("企業削除に失敗しました。時間をおいて再度お試しください。")
+                const detail = error instanceof Error ? error.message : String(error)
+                setDeleteError(`企業削除に失敗しました: ${detail}`)
             }
         })
     }
@@ -127,11 +128,11 @@ export default function CompanyContextBar({ companyId, companyName, sheetEntry, 
                 </div>
             </div>
 
-            {/* 削除確認パネル */}
             {showConfirm && (
                 <div className="flex items-center gap-3 bg-destructive/5 border border-destructive/30 px-4 py-3 rounded-xl">
                     <p className="flex-1 text-[12px] text-destructive font-medium">
-                        「{companyName}」を削除しますか？応募者データも含めてすべて削除されます。この操作は取り消せません。
+                        「{companyName}」を削除しますか？
+                        応募者データ・シート連携設定も含めて削除されます。この操作は取り消せません。
                     </p>
                     <div className="flex items-center gap-2 flex-shrink-0">
                         <button
@@ -152,6 +153,7 @@ export default function CompanyContextBar({ companyId, companyName, sheetEntry, 
                     </div>
                 </div>
             )}
+
             {deleteError && (
                 <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2 text-[12px] text-destructive">
                     {deleteError}

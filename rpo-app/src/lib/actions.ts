@@ -376,15 +376,20 @@ export async function deleteCompany(companyId: string) {
         throw new Error("企業IDが不正です。")
     }
 
-    await db.transaction(async (tx) => {
-        // Keep explicit cleanup so deletion works regardless of DB FK cascade settings.
-        await tx.delete(schema.companyCaseTargets).where(eq(schema.companyCaseTargets.companyId, trimmedCompanyId))
-        await tx.delete(schema.analysisCriteria).where(eq(schema.analysisCriteria.companyId, trimmedCompanyId))
-        await tx.delete(schema.applicants).where(eq(schema.applicants.companyId, trimmedCompanyId))
-        await tx.delete(schema.companyAliases).where(eq(schema.companyAliases.companyId, trimmedCompanyId))
-        await tx.delete(schema.companySheets).where(eq(schema.companySheets.companyId, trimmedCompanyId))
-        await tx.delete(schema.companies).where(eq(schema.companies.id, trimmedCompanyId))
-    })
+    try {
+        await db.transaction(async (tx) => {
+            // Keep explicit cleanup so deletion works regardless of DB FK cascade settings.
+            await tx.delete(schema.companyCaseTargets).where(eq(schema.companyCaseTargets.companyId, trimmedCompanyId))
+            await tx.delete(schema.analysisCriteria).where(eq(schema.analysisCriteria.companyId, trimmedCompanyId))
+            await tx.delete(schema.applicants).where(eq(schema.applicants.companyId, trimmedCompanyId))
+            await tx.delete(schema.companyAliases).where(eq(schema.companyAliases.companyId, trimmedCompanyId))
+            await tx.delete(schema.companySheets).where(eq(schema.companySheets.companyId, trimmedCompanyId))
+            await tx.delete(schema.companies).where(eq(schema.companies.id, trimmedCompanyId))
+        })
+    } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        throw new Error(`企業削除に失敗しました: ${detail}`)
+    }
 
     revalidatePath("/companies")
     revalidatePath("/companies/manage")
