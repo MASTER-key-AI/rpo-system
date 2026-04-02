@@ -117,13 +117,24 @@ export default async function CompaniesYieldPage({
         )
     }
 
-    const [yields, groupsWithMembers, sheetMap, caseYields, caseTargetHistory] = await Promise.all([
+    const [yields, groupsWithMembers, sheetMap, caseYields] = await Promise.all([
         getCompanyYields(year, month, dateType, { companyId }),
         getCompanyGroupsWithMembers(),
         getCompanySheetMap(),
         getCompanyCaseYields(year, month, dateType, { companyId }),
-        companyId ? getCompanyCaseTargetHistory(companyId) : Promise.resolve([]),
     ])
+    let caseTargetHistory: Awaited<ReturnType<typeof getCompanyCaseTargetHistory>> = []
+    if (companyId) {
+        try {
+            caseTargetHistory = await getCompanyCaseTargetHistory(companyId)
+        } catch (error) {
+            console.error("[companies/page] failed to load company case target history", {
+                companyId,
+                error: error instanceof Error ? error.message : String(error),
+            })
+            caseTargetHistory = []
+        }
+    }
 
     const csvParams = new URLSearchParams()
     csvParams.set("dateType", dateType)

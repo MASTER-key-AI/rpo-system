@@ -27,6 +27,7 @@ export default function CompanyContextBar({ companyId, companyName, sheetEntry, 
     const router = useRouter()
     const [isPending, startTransition] = useTransition()
     const [showConfirm, setShowConfirm] = useState(false)
+    const [deleteError, setDeleteError] = useState<string | null>(null)
 
     const links = [
         {
@@ -51,8 +52,18 @@ export default function CompanyContextBar({ companyId, companyName, sheetEntry, 
 
     function handleDelete() {
         startTransition(async () => {
-            await deleteCompanyById(companyId)
-            router.push("/companies")
+            try {
+                setDeleteError(null)
+                await deleteCompanyById(companyId)
+                setShowConfirm(false)
+                router.push("/companies")
+            } catch (error) {
+                console.error("[CompanyContextBar] failed to delete company", {
+                    companyId,
+                    error: error instanceof Error ? error.message : String(error),
+                })
+                setDeleteError("企業削除に失敗しました。時間をおいて再度お試しください。")
+            }
         })
     }
 
@@ -139,6 +150,11 @@ export default function CompanyContextBar({ companyId, companyName, sheetEntry, 
                             {isPending ? "削除中..." : "削除する"}
                         </button>
                     </div>
+                </div>
+            )}
+            {deleteError && (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2 text-[12px] text-destructive">
+                    {deleteError}
                 </div>
             )}
         </div>

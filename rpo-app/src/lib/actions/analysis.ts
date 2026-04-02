@@ -480,12 +480,54 @@ export async function getCompanyCaseTargetHistory(companyId: string): Promise<Ca
 
     const results = await Promise.all(
         targets.map(async (t) => {
-            const startUnix = Math.floor(new Date(t.startDate).getTime() / 1000)
-            const endUnix = Math.floor(new Date(t.endDate).getTime() / 1000)
+            const startMs = new Date(t.startDate).getTime()
+            const endMs = new Date(t.endDate).getTime()
+            const startUnix = Number.isFinite(startMs) ? Math.floor(startMs / 1000) : 0
+            const endUnix = Number.isFinite(endMs) ? Math.floor(endMs / 1000) : 0
             const isActive = todayUnix >= startUnix && todayUnix <= endUnix
             const isEnded = todayUnix > endUnix
 
-            const metrics = await getCaseTargetMetrics(companyId, t.caseName, startUnix, endUnix)
+            let metrics: Awaited<ReturnType<typeof getCaseTargetMetrics>>
+            if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+                console.error("[analysis] invalid case target period", {
+                    companyId,
+                    caseTargetId: t.id,
+                    startDate: t.startDate,
+                    endDate: t.endDate,
+                })
+                metrics = {
+                    companyId,
+                    companyName: "",
+                    totalApplicants: 0,
+                    validApplicants: 0,
+                    connectedApplicantCount: 0,
+                    interviewScheduledCount: 0,
+                    interviewConductedCount: 0,
+                    offered: 0,
+                    joined: 0,
+                }
+            } else {
+                try {
+                    metrics = await getCaseTargetMetrics(companyId, t.caseName, startUnix, endUnix)
+                } catch (error) {
+                    console.error("[analysis] failed to load case target metrics", {
+                        companyId,
+                        caseTargetId: t.id,
+                        error: error instanceof Error ? error.message : String(error),
+                    })
+                    metrics = {
+                        companyId,
+                        companyName: "",
+                        totalApplicants: 0,
+                        validApplicants: 0,
+                        connectedApplicantCount: 0,
+                        interviewScheduledCount: 0,
+                        interviewConductedCount: 0,
+                        offered: 0,
+                        joined: 0,
+                    }
+                }
+            }
 
             return {
                 id: t.id,

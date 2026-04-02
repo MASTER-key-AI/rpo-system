@@ -234,7 +234,8 @@ export async function getApplicants(
     const safeOffset = (safePage - 1) * currentPageSize
 
     const applicants = await listedQuery
-        .orderBy(desc(schema.applicants.appliedAt), desc(schema.applicants.createdAt))
+        // Default sort: newest registered applicants first.
+        .orderBy(desc(schema.applicants.createdAt), desc(schema.applicants.appliedAt))
         .limit(currentPageSize)
         .offset(safeOffset)
         .all();
@@ -376,6 +377,9 @@ export async function deleteCompany(companyId: string) {
     }
 
     await db.transaction(async (tx) => {
+        // Keep explicit cleanup so deletion works regardless of DB FK cascade settings.
+        await tx.delete(schema.companyCaseTargets).where(eq(schema.companyCaseTargets.companyId, trimmedCompanyId))
+        await tx.delete(schema.analysisCriteria).where(eq(schema.analysisCriteria.companyId, trimmedCompanyId))
         await tx.delete(schema.applicants).where(eq(schema.applicants.companyId, trimmedCompanyId))
         await tx.delete(schema.companyAliases).where(eq(schema.companyAliases.companyId, trimmedCompanyId))
         await tx.delete(schema.companySheets).where(eq(schema.companySheets.companyId, trimmedCompanyId))
@@ -384,8 +388,12 @@ export async function deleteCompany(companyId: string) {
 
     revalidatePath("/companies")
     revalidatePath("/companies/manage")
+    revalidatePath("/companies/groups")
     revalidatePath("/applicants")
     revalidatePath("/calls")
+    revalidatePath("/calls/history")
+    revalidatePath("/calls/analysis")
+    revalidatePath("/analysis")
     return { success: true }
 }
 
