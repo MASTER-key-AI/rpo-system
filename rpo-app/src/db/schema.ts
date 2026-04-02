@@ -61,6 +61,7 @@ export const companies = sqliteTable("company", {
   id: text("id").primaryKey(),
   name: text("name").notNull().unique(),
   groupId: text("group_id").references(() => companyGroups.id, { onDelete: "set null" }),
+  supportStatus: text("support_status").notNull().default("支援中"),
   createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
   updatedAt: integer("updated_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
 });
@@ -185,4 +186,28 @@ export const callLogs = sqliteTable("call_log", {
   note: text("note"),
   calledAt: integer("called_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
   createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
+});
+
+export const companyCaseTargets = sqliteTable("company_case_target", {
+  id: text("id").primaryKey(),
+  companyId: text("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  caseName: text("case_name").notNull(),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date").notNull(),
+  targetHires: integer("target_hires").notNull().default(1),
+  createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
+});
+
+export const analysisCriteria = sqliteTable("analysis_criteria", {
+  id: text("id").primaryKey(),
+  companyId: text("company_id").references(() => companies.id, { onDelete: "cascade" }),
+  weekNum: integer("week_num").notNull(),
+  condition1Metric: text("condition1_metric").notNull(),
+  condition1Value: integer("condition1_value").notNull().default(1),
+  condition2Metric: text("condition2_metric"),
+  condition2Value: integer("condition2_value").default(0),
+  logic: text("logic").notNull().default("OR"),
+  createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now'))`),
 });

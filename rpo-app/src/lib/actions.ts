@@ -289,6 +289,13 @@ export type CompanyManagementRow = {
     groupId: string | null
 }
 
+export type CaseManagementRow = {
+    companyId: string
+    companyName: string
+    caseName: string
+    applicantCount: number
+}
+
 export async function getCompanyManagementList(): Promise<CompanyManagementRow[]> {
     const rows = await db
         .select({
@@ -308,6 +315,29 @@ export async function getCompanyManagementList(): Promise<CompanyManagementRow[]
         name: row.name,
         applicantCount: Number(row.applicantCount || 0),
         groupId: row.groupId,
+    }))
+}
+
+export async function getCaseManagementList(): Promise<CaseManagementRow[]> {
+    const rows = await db
+        .select({
+            companyId: schema.companies.id,
+            companyName: schema.companies.name,
+            caseName: schema.applicants.caseName,
+            applicantCount: sql<number>`count(${schema.applicants.id})`,
+        })
+        .from(schema.applicants)
+        .innerJoin(schema.companies, eq(schema.applicants.companyId, schema.companies.id))
+        .where(sql`nullif(trim(${schema.applicants.caseName}), '') is not null`)
+        .groupBy(schema.companies.id, schema.companies.name, schema.applicants.caseName)
+        .orderBy(schema.companies.name, schema.applicants.caseName)
+        .all()
+
+    return rows.map((row) => ({
+        companyId: row.companyId,
+        companyName: row.companyName,
+        caseName: row.caseName ?? "",
+        applicantCount: Number(row.applicantCount || 0),
     }))
 }
 
@@ -345,21 +375,48 @@ export async function deleteCompany(companyId: string) {
         throw new Error("企業IDが不正です。")
     }
 
-    const linkedApplicantCount = await db
-        .select({ count: sql<number>`count(${schema.applicants.id})` })
-        .from(schema.applicants)
-        .where(eq(schema.applicants.companyId, trimmedCompanyId))
-        .get()
+    await db.transaction(async (tx) => {
+        await tx.delete(schema.applicants).where(eq(schema.applicants.companyId, trimmedCompanyId))
+        await tx.delete(schema.companyAliases).where(eq(schema.companyAliases.companyId, trimmedCompanyId))
+        await tx.delete(schema.companySheets).where(eq(schema.companySheets.companyId, trimmedCompanyId))
+        await tx.delete(schema.companies).where(eq(schema.companies.id, trimmedCompanyId))
+    })
 
-    const applicantCount = Number(linkedApplicantCount?.count || 0)
-    if (applicantCount > 0) {
-        throw new Error(`応募者が${applicantCount}件紐づいているため、削除できません。`)
-    }
-
-    await db.delete(schema.companies).where(eq(schema.companies.id, trimmedCompanyId))
     revalidatePath("/companies")
+    revalidatePath("/companies/manage")
     revalidatePath("/applicants")
     revalidatePath("/calls")
+    return { success: true }
+}
+
+export async function deleteCase(companyId: string, caseName: string) {
+    const trimmedCompanyId = companyId.trim()
+    const rawCaseName = caseName
+    const trimmedCaseName = rawCaseName.trim()
+
+    if (!trimmedCompanyId) {
+        throw new Error("企業IDが不正です。")
+    }
+    if (!trimmedCaseName) {
+        throw new Error("案件名が不正です。")
+    }
+
+    await db
+        .update(schema.applicants)
+        .set({
+            caseName: null,
+            updatedAt: sql`(strftime('%s', 'now'))`,
+        })
+        .where(
+            and(
+                eq(schema.applicants.companyId, trimmedCompanyId),
+                eq(schema.applicants.caseName, rawCaseName),
+            ),
+        )
+
+    revalidatePath("/companies")
+    revalidatePath("/companies/manage")
+    revalidatePath("/applicants")
     return { success: true }
 }
 

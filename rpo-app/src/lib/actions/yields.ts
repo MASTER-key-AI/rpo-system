@@ -360,6 +360,99 @@ export async function getCompanyYields(
     }) as CompanyYieldRow[]
 }
 
+// ====================================================================
+// 支援期間ベース：企業×職種の累計メトリクス取得
+// ====================================================================
+
+export type CaseTargetMetrics = {
+    companyId: string
+    companyName: string
+    totalApplicants: number
+    validApplicants: number
+    connectedApplicantCount: number
+    interviewScheduledCount: number
+    interviewConductedCount: number
+    offered: number
+    joined: number
+}
+
+export async function getCaseTargetMetrics(
+    companyId: string,
+    caseName: string,
+    startDateUnix: number,
+    endDateUnix?: number,
+): Promise<CaseTargetMetrics> {
+    const timeFilter = endDateUnix
+        ? sql`${schema.applicants.appliedAt} >= ${startDateUnix} AND ${schema.applicants.appliedAt} <= ${endDateUnix}`
+        : sql`${schema.applicants.appliedAt} >= ${startDateUnix}`
+    const caseNameFilter = sql`${schema.applicants.caseName} = ${caseName}`
+    const companyFilter = eq(schema.companies.id, companyId)
+
+    const joinCondition = and(
+        eq(schema.companies.id, schema.applicants.companyId),
+        timeFilter,
+        caseNameFilter,
+    )
+
+    const [mainRow, callRow] = await Promise.all([
+        db
+            .select({
+                companyId: schema.companies.id,
+                companyName: schema.companies.name,
+                totalApplicants: sql<number>`count(${schema.applicants.id})`,
+                validApplicants: sql<number>`sum(coalesce(${schema.applicants.isValidApplicant},0))`,
+                interviewScheduledCount: sql<number>`sum(case when ${schema.applicants.primaryScheduledDate} is not null then 1 else 0 end)`,
+                interviewConductedCount: sql<number>`sum(case when coalesce(${schema.applicants.primaryConducted},0) = 1 then 1 else 0 end)`,
+                offered: sql<number>`sum(case when ${statusIn(OFFERED_STATUSES)} then 1 else 0 end)`,
+                joined: sql<number>`sum(case when ${statusIn(JOINED_STATUSES)} then 1 else 0 end)`,
+            })
+            .from(schema.companies)
+            .where(companyFilter)
+            .leftJoin(schema.applicants, joinCondition)
+            .groupBy(schema.companies.id, schema.companies.name)
+            .limit(1),
+        db
+            .select({
+                companyId: schema.companies.id,
+                connectedApplicantCount: sql<number>`sum(case when ${schema.applicants.connectedAt} is not null then 1 else 0 end)`,
+            })
+            .from(schema.companies)
+            .where(companyFilter)
+            .leftJoin(schema.applicants, joinCondition)
+            .groupBy(schema.companies.id)
+            .limit(1),
+    ])
+
+    const row = mainRow[0]
+    const callData = callRow[0]
+
+    if (!row) {
+        return {
+            companyId,
+            companyName: "",
+            totalApplicants: 0,
+            validApplicants: 0,
+            connectedApplicantCount: 0,
+            interviewScheduledCount: 0,
+            interviewConductedCount: 0,
+            offered: 0,
+            joined: 0,
+        }
+    }
+
+    return {
+        companyId: row.companyId,
+        companyName: row.companyName,
+        totalApplicants: Number(row.totalApplicants || 0),
+        validApplicants: Number(row.validApplicants || 0),
+        connectedApplicantCount: Number(callData?.connectedApplicantCount || 0),
+        interviewScheduledCount: Number(row.interviewScheduledCount || 0),
+        interviewConductedCount: Number(row.interviewConductedCount || 0),
+        offered: Number(row.offered || 0),
+        joined: Number(row.joined || 0),
+    }
+}
+
 export async function getCompanyMonthlyTotals(year: number | undefined) {
     const normalizedYear = normalizeDateFilter(year, undefined).year
     const filter = buildAppliedTimeFilter({ year: normalizedYear, month: undefined })

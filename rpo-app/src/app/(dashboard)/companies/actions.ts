@@ -1,12 +1,24 @@
 "use server";
 
-import { deleteCompany } from "@/lib/actions"
+import { deleteCompany, deleteCase } from "@/lib/actions"
 import { createCompanyGroup, deleteCompanyGroup, addCompanyToGroup, removeCompanyFromGroup } from "@/lib/actions/groups"
 
 export async function deleteCompanyAction(formData: FormData) {
     "use server"
     const companyId = String(formData.get("companyId") || "").trim()
     await deleteCompany(companyId)
+}
+
+export async function deleteCompanyById(companyId: string): Promise<void> {
+    "use server"
+    await deleteCompany(companyId)
+}
+
+export async function deleteCaseAction(formData: FormData) {
+    "use server"
+    const companyId = String(formData.get("companyId") || "").trim()
+    const caseName = String(formData.get("caseName") || "")
+    await deleteCase(companyId, caseName)
 }
 
 export async function createGroupAction(formData: FormData) {

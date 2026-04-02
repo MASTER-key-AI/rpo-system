@@ -1,15 +1,16 @@
 import { ArrowLeft, Building2 } from "lucide-react"
 import Link from "next/link"
-import { getCompanyManagementList } from "@/lib/actions"
+import { getCompanyManagementList, getCaseManagementList } from "@/lib/actions"
 import { getCompanyGroups } from "@/lib/actions/groups"
 import CompanyManagementClient from "../CompanyManagementClient"
-import { deleteCompanyAction, createGroupAction, deleteGroupAction, setCompanyGroupAction } from "../actions"
+import { deleteCompanyAction, deleteCaseAction, createGroupAction, deleteGroupAction, setCompanyGroupAction } from "../actions"
 
 export const dynamic = "force-dynamic"
 
 export default async function CompanyManagePage() {
-    const [managementCompanies, groups] = await Promise.all([
+    const [managementCompanies, managementCases, groups] = await Promise.all([
         getCompanyManagementList(),
+        getCaseManagementList(),
         getCompanyGroups(),
     ])
 
@@ -36,8 +37,10 @@ export default async function CompanyManagePage() {
 
             <CompanyManagementClient
                 companies={managementCompanies}
+                cases={managementCases}
                 groups={groups}
                 deleteCompanyAction={deleteCompanyAction}
+                deleteCaseAction={deleteCaseAction}
                 createGroupAction={createGroupAction}
                 deleteGroupAction={deleteGroupAction}
                 setCompanyGroupAction={setCompanyGroupAction}

@@ -17,10 +17,19 @@ type GroupItem = {
     memberCount: number
 }
 
+type CaseItem = {
+    companyId: string
+    companyName: string
+    caseName: string
+    applicantCount: number
+}
+
 type Props = {
     companies: CompanyItem[]
+    cases: CaseItem[]
     groups: GroupItem[]
     deleteCompanyAction: (formData: FormData) => Promise<void>
+    deleteCaseAction: (formData: FormData) => Promise<void>
     createGroupAction: (formData: FormData) => Promise<void>
     deleteGroupAction: (formData: FormData) => Promise<void>
     setCompanyGroupAction: (formData: FormData) => Promise<void>
@@ -35,20 +44,26 @@ function getErrorMessage(error: unknown) {
 
 export default function CompanyManagementClient({
     companies,
+    cases,
     groups,
     deleteCompanyAction,
+    deleteCaseAction,
     createGroupAction,
     deleteGroupAction,
     setCompanyGroupAction,
 }: Props) {
     const router = useRouter()
     const [pendingCompanyId, setPendingCompanyId] = useState<string | null>(null)
+    const [pendingCaseKey, setPendingCaseKey] = useState<string | null>(null)
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const [newGroupName, setNewGroupName] = useState("")
     const [isCreatingGroup, startCreatingGroup] = useTransition()
 
     const handleDelete = async (company: CompanyItem) => {
-        if (!confirm(`紹介先企業「${company.name}」を削除してよいですか？この操作は元に戻せません。`)) {
+        const hasApplicantsWarning = company.applicantCount > 0
+            ? `\n※応募者 ${company.applicantCount} 件も同時に削除されます。`
+            : ""
+        if (!confirm(`紹介先企業「${company.name}」を削除してよいですか？この操作は元に戻せません。${hasApplicantsWarning}`)) {
             return
         }
 
@@ -64,6 +79,28 @@ export default function CompanyManagementClient({
             setErrorMessage(getErrorMessage(error))
         } finally {
             setPendingCompanyId(null)
+        }
+    }
+
+    const handleDeleteCase = async (item: CaseItem) => {
+        if (!confirm(`案件「${item.caseName}」（${item.companyName}）を削除してよいですか？\n※応募者 ${item.applicantCount} 件の案件名が空欄になります。`)) {
+            return
+        }
+
+        const caseKey = `${item.companyId}::${item.caseName}`
+        setErrorMessage(null)
+        setPendingCaseKey(caseKey)
+
+        try {
+            const formData = new FormData()
+            formData.set("companyId", item.companyId)
+            formData.set("caseName", item.caseName)
+            await deleteCaseAction(formData)
+            router.refresh()
+        } catch (error) {
+            setErrorMessage(getErrorMessage(error))
+        } finally {
+            setPendingCaseKey(null)
         }
     }
 
@@ -116,7 +153,7 @@ export default function CompanyManagementClient({
         <section className="bg-card rounded-xl border border-border shadow-soft p-4 space-y-4">
             <div>
                 <h2 className="text-lg font-semibold text-foreground">紹介先企業管理</h2>
-                <p className="text-xs text-muted-foreground mt-1">応募者が紐づいていない企業のみ削除できます。</p>
+                <p className="text-xs text-muted-foreground mt-1">企業削除時は、紐づく応募者・シート設定・エイリアスも同時に削除されます。</p>
             </div>
 
             {errorMessage ? (
@@ -207,7 +244,7 @@ export default function CompanyManagementClient({
                         ) : (
                             companies.map((company) => {
                                 const isDeleting = pendingCompanyId === company.id
-                                const isDisabled = pendingCompanyId !== null || company.applicantCount > 0
+                                const isDisabled = pendingCompanyId !== null
                                 return (
                                     <tr key={company.id} className="hover:bg-muted/30">
                                         <td className="px-3 py-2 text-foreground">{company.name}</td>
@@ -229,7 +266,6 @@ export default function CompanyManagementClient({
                                                 type="button"
                                                 onClick={() => void handleDelete(company)}
                                                 disabled={isDisabled}
-                                                title={company.applicantCount > 0 ? "応募者が紐づいているため削除できません。" : undefined}
                                                 className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-destructive/40 text-destructive text-xs font-medium hover:bg-destructive/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                             >
                                                 <Trash2 className="w-3.5 h-3.5" />
@@ -242,6 +278,57 @@ export default function CompanyManagementClient({
                         )}
                     </tbody>
                 </table>
+            </div>
+
+            {/* 案件一覧 */}
+            <div className="space-y-2">
+                <h3 className="text-sm font-semibold text-foreground">案件管理</h3>
+                <p className="text-xs text-muted-foreground">案件削除は、該当応募者の「案件名」を一括で空欄にします（応募者データ自体は削除しません）。</p>
+                <div className="overflow-auto">
+                    <table className="w-full text-sm text-left">
+                        <thead className="text-xs text-muted-foreground uppercase bg-muted/20 border-b border-border">
+                            <tr>
+                                <th className="px-3 py-2 font-semibold">企業名</th>
+                                <th className="px-3 py-2 font-semibold">案件名</th>
+                                <th className="px-3 py-2 font-semibold text-center">応募者数</th>
+                                <th className="px-3 py-2 font-semibold text-center">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border/70">
+                            {cases.length === 0 ? (
+                                <tr>
+                                    <td colSpan={4} className="px-3 py-4 text-center text-muted-foreground">
+                                        登録済みの案件はありません。
+                                    </td>
+                                </tr>
+                            ) : (
+                                cases.map((item) => {
+                                    const key = `${item.companyId}::${item.caseName}`
+                                    const isDeleting = pendingCaseKey === key
+                                    const isDisabled = pendingCaseKey !== null
+                                    return (
+                                        <tr key={key} className="hover:bg-muted/30">
+                                            <td className="px-3 py-2 text-foreground">{item.companyName}</td>
+                                            <td className="px-3 py-2 text-foreground">{item.caseName}</td>
+                                            <td className="px-3 py-2 text-center text-muted-foreground">{item.applicantCount}</td>
+                                            <td className="px-3 py-2 text-center">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void handleDeleteCase(item)}
+                                                    disabled={isDisabled}
+                                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-destructive/40 text-destructive text-xs font-medium hover:bg-destructive/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                                >
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                    {isDeleting ? "削除中..." : "削除"}
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    )
+                                })
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </section>
     )

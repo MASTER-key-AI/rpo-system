@@ -1,10 +1,12 @@
 import { getApplicantAppliedYears, getCompanyMonthlyTotals, getCompanyYields, getCompanyCaseYields } from "@/lib/actions/yields"
 import { getCompanyGroupsWithMembers } from "@/lib/actions/groups"
 import { getCompanySheetMap } from "@/lib/actions/sheets"
+import { getCompanyCaseTargetHistory } from "@/lib/actions/analysis"
 import { Building2, CalendarDays, Download, Filter, Settings2 } from "lucide-react"
 import CompaniesYieldTableClient from "./CompaniesYieldTableClient"
 import CompaniesMonthlyTotalsClient from "./CompaniesMonthlyTotalsClient"
 import CompanyContextBar from "@/components/CompanyContextBar"
+import SupportPeriodHistory from "./SupportPeriodHistory"
 import Link from "next/link"
 
 export default async function CompaniesYieldPage({
@@ -115,11 +117,12 @@ export default async function CompaniesYieldPage({
         )
     }
 
-    const [yields, groupsWithMembers, sheetMap, caseYields] = await Promise.all([
+    const [yields, groupsWithMembers, sheetMap, caseYields, caseTargetHistory] = await Promise.all([
         getCompanyYields(year, month, dateType, { companyId }),
         getCompanyGroupsWithMembers(),
         getCompanySheetMap(),
         getCompanyCaseYields(year, month, dateType, { companyId }),
+        companyId ? getCompanyCaseTargetHistory(companyId) : Promise.resolve([]),
     ])
 
     const csvParams = new URLSearchParams()
@@ -219,6 +222,10 @@ export default async function CompaniesYieldPage({
                     sheetEntry={sheetMap[companyId]}
                     activePage="companies"
                 />
+            )}
+
+            {companyId && caseTargetHistory.length > 0 && (
+                <SupportPeriodHistory history={caseTargetHistory} />
             )}
 
             <CompaniesYieldTableClient yields={yields} companyId={companyId} groups={groupsWithMembers} sheetMap={sheetMap} caseYields={caseYields} />
