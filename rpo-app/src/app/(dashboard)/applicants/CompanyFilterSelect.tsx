@@ -2,19 +2,25 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useMemo, useState } from "react"
-import { ChevronDown, Search } from "lucide-react"
+import { ChevronDown, Layers, Search } from "lucide-react"
 
 type CompanyOption = {
     id: string
     name: string
 }
 
+type CompanyGroup = {
+    label: string
+    ids: string[]
+}
+
 type Props = {
     companies: CompanyOption[]
     selectedCompanyIds?: string[]
+    groups?: CompanyGroup[]
 }
 
-export default function CompanyFilterSelect({ companies, selectedCompanyIds = [] }: Props) {
+export default function CompanyFilterSelect({ companies, selectedCompanyIds = [], groups = [] }: Props) {
     const pathname = usePathname()
     const router = useRouter()
     const searchParams = useSearchParams()
@@ -45,17 +51,39 @@ export default function CompanyFilterSelect({ companies, selectedCompanyIds = []
         return companies.filter((company) => company.name.toLowerCase().includes(q))
     }, [companies, keyword])
 
+    // フィルタキーワードにマッチするグループも絞り込む
+    const filteredGroups = useMemo(() => {
+        const q = keyword.trim().toLowerCase()
+        if (!q) return groups
+        return groups.filter((g) => g.label.toLowerCase().includes(q))
+    }, [groups, keyword])
+
+    // 選択中のグループを検出（全IDが選択済みの場合）
+    const activeGroupLabel = useMemo(() => {
+        if (normalizedSelectedIds.length === 0) return null
+        for (const g of groups) {
+            if (
+                g.ids.length > 0 &&
+                g.ids.length === normalizedSelectedIds.length &&
+                g.ids.every((id) => selectedSet.has(id))
+            ) {
+                return g.label
+            }
+        }
+        return null
+    }, [groups, normalizedSelectedIds, selectedSet])
+
     const buttonLabel = useMemo(() => {
         if (normalizedSelectedIds.length === 0) return "全ての企業"
+        if (activeGroupLabel) return activeGroupLabel
         if (normalizedSelectedIds.length === 1) {
             return companyNameMap.get(normalizedSelectedIds[0]) || "1社を選択中"
         }
         return `${normalizedSelectedIds.length}社を選択中`
-    }, [companyNameMap, normalizedSelectedIds])
+    }, [activeGroupLabel, companyNameMap, normalizedSelectedIds])
 
     const applyCompanyIds = (ids: string[]) => {
         const params = new URLSearchParams(searchParams.toString())
-
         if (ids.length > 0) {
             params.set("companyIds", ids.join(","))
         } else {
@@ -63,25 +91,24 @@ export default function CompanyFilterSelect({ companies, selectedCompanyIds = []
         }
         params.delete("companyId")
         params.delete("page")
-
         const nextQuery = params.toString()
-        const nextPath = nextQuery ? `${pathname}?${nextQuery}` : pathname
-        router.replace(nextPath)
+        router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname)
+    }
+
+    const selectGroup = (group: CompanyGroup) => {
+        // 既に全IDが選択中なら解除、そうでなければ選択
+        const allSelected = group.ids.length > 0 && group.ids.every((id) => selectedSet.has(id))
+        applyCompanyIds(allSelected ? [] : group.ids)
     }
 
     const toggleCompany = (companyId: string) => {
         const nextSet = new Set(normalizedSelectedIds)
-        if (nextSet.has(companyId)) {
-            nextSet.delete(companyId)
-        } else {
-            nextSet.add(companyId)
-        }
+        if (nextSet.has(companyId)) nextSet.delete(companyId)
+        else nextSet.add(companyId)
         applyCompanyIds(Array.from(nextSet))
     }
 
-    const clearSelection = () => {
-        applyCompanyIds([])
-    }
+    const clearSelection = () => applyCompanyIds([])
 
     return (
         <div className="relative">
@@ -104,13 +131,51 @@ export default function CompanyFilterSelect({ companies, selectedCompanyIds = []
                             type="text"
                             value={keyword}
                             onChange={(event) => setKeyword(event.currentTarget.value)}
-                            placeholder="企業名で検索..."
+                            placeholder="企業名・グループで検索..."
                             className="w-full h-8 pl-8 pr-2 rounded-md border border-input bg-background text-[12px] focus:outline-none focus:ring-2 focus:ring-ring/40"
                         />
                     </div>
 
-                    <div className="max-h-56 overflow-auto rounded-md border border-border/60 bg-background/40">
-                        {filteredCompanies.length === 0 ? (
+                    <div className="max-h-72 overflow-auto rounded-md border border-border/60 bg-background/40">
+                        {/* グループ選択セクション */}
+                        {filteredGroups.length > 0 && (
+                            <>
+                                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-muted/40 border-b border-border/60">
+                                    <Layers className="w-3 h-3 text-muted-foreground shrink-0" />
+                                    <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">グループ選択</span>
+                                </div>
+                                {filteredGroups.map((group) => {
+                                    const isActive = group.ids.length > 0 && group.ids.every((id) => selectedSet.has(id))
+                                    return (
+                                        <button
+                                            key={group.label}
+                                            type="button"
+                                            onClick={() => selectGroup(group)}
+                                            className={`w-full flex items-center gap-2 px-3 py-2 text-[12px] text-left transition-colors cursor-pointer ${
+                                                isActive
+                                                    ? "bg-primary/10 text-primary font-medium"
+                                                    : "hover:bg-muted/60 text-foreground"
+                                            }`}
+                                        >
+                                            <Layers className={`w-3 h-3 shrink-0 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
+                                            <span className="flex-1 truncate">{group.label}</span>
+                                            <span className={`text-[10px] shrink-0 ${isActive ? "text-primary" : "text-muted-foreground"}`}>
+                                                {group.ids.length}社
+                                            </span>
+                                        </button>
+                                    )
+                                })}
+                                {/* 個別企業との区切り */}
+                                {(keyword ? filteredCompanies : companies).length > 0 && (
+                                    <div className="flex items-center gap-1.5 px-3 py-1.5 bg-muted/40 border-y border-border/60">
+                                        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">個別企業</span>
+                                    </div>
+                                )}
+                            </>
+                        )}
+
+                        {/* 個別企業リスト */}
+                        {filteredCompanies.length === 0 && filteredGroups.length === 0 ? (
                             <p className="px-3 py-2 text-[12px] text-muted-foreground">該当する企業がありません</p>
                         ) : (
                             filteredCompanies.map((company) => (

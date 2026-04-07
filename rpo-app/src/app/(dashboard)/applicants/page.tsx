@@ -103,6 +103,17 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
         ? companies.find((c) => c.id === singleSelectedCompanyId)?.name ?? null
         : null
 
+    // 支店グループを自動検出（2社以上マッチするもののみ）
+    const BRANCH_PATTERNS: { label: string; match: (name: string) => boolean }[] = [
+        { label: "エニタイムフィットネス（全体）", match: (n) => n.startsWith("エニタイムフィットネス") },
+        { label: "アイケアLaBo（全体）", match: (n) => /^アイケアlabo/i.test(n) },
+        { label: "株式会社ハーツ（全体）", match: (n) => n.includes("ハーツ") },
+        { label: "株式会社フレックス（全体）", match: (n) => n.startsWith("株式会社フレックス") },
+    ]
+    const companyGroups = BRANCH_PATTERNS
+        .map((p) => ({ label: p.label, ids: companies.filter((c) => p.match(c.name)).map((c) => c.id) }))
+        .filter((g) => g.ids.length >= 2)
+
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -147,6 +158,7 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
                         <CompanyFilterSelect
                             companies={companies}
                             selectedCompanyIds={selectedCompanyIds}
+                            groups={companyGroups}
                         />
                         <ApplicantsCsvActions exportHref={exportHref} />
                     </div>
