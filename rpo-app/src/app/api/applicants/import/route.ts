@@ -1,13 +1,14 @@
 import { auth } from "@/auth"
 import { db, schema } from "@/db"
 import { isCompanyNameUniqueConstraintError, normalizeCompanyName } from "@/lib/company-name"
-import { eq } from "drizzle-orm"
+import { eq, inArray } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { NextRequest, NextResponse } from "next/server"
 
 export const runtime = "nodejs"
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+const BATCH_SIZE = 50
 
 const HEADER_ALIASES = {
     applicantId: ["応募者ID", "id", "applicantId"],
@@ -37,6 +38,34 @@ const HEADER_ALIASES = {
 } as const
 
 const ENCODING_CANDIDATES = ["utf-8", "shift_jis"] as const
+
+type ParsedRow = {
+    rowNo: number
+    applicantId: string
+    companyName: string
+    name: string
+    caseName: string | null
+    email: string | null
+    appliedJob: string | null
+    appliedLocation: string | null
+    phone: string | null
+    age: number | null
+    birthDate: Date | null
+    gender: string | null
+    assigneeName: string | null
+    responseStatus: string | null
+    notes: string | null
+    nextActionDate: Date | null
+    connectedAt: Date | null
+    primaryScheduledDate: Date | null
+    primaryConducted: boolean | undefined
+    secScheduledDate: Date | null
+    secConducted: boolean | undefined
+    offered: boolean | undefined
+    joinedDate: Date | null
+    isValidApplicant: boolean | undefined
+    appliedAt: Date | null
+}
 
 export async function POST(request: NextRequest) {
     const session = await auth()
@@ -74,11 +103,10 @@ export async function POST(request: NextRequest) {
         )
     }
 
-    const companyCache = new Map<string, string>()
-    let created = 0
-    let updated = 0
+    // Phase 1: Parse all rows in memory (no DB)
+    const parsedRows: ParsedRow[] = []
+    const parseErrors: string[] = []
     let skipped = 0
-    const errors: string[] = []
 
     for (let i = 1; i < rows.length; i++) {
         const row = rows[i] || []
@@ -88,98 +116,171 @@ export async function POST(request: NextRequest) {
         }
 
         const rowNo = i + 1
-        const applicantId = getCell(row, indexMap, HEADER_ALIASES.applicantId)
         const companyName = getCell(row, indexMap, HEADER_ALIASES.companyName)
         const name = getCell(row, indexMap, HEADER_ALIASES.name)
 
         if (!companyName || !name) {
             skipped += 1
-            errors.push(`行${rowNo}: 企業名または氏名が不足しています。`)
+            parseErrors.push(`行${rowNo}: 企業名または氏名が不足しています。`)
             continue
         }
 
-        try {
-            const companyId = await resolveCompanyId(companyName, companyCache)
-            const appliedAt = parseDateValue(getCell(row, indexMap, HEADER_ALIASES.appliedAt))
+        parsedRows.push({
+            rowNo,
+            applicantId: getCell(row, indexMap, HEADER_ALIASES.applicantId),
+            companyName,
+            name,
+            caseName: toNullableString(getCell(row, indexMap, HEADER_ALIASES.caseName)),
+            email: toNullableString(getCell(row, indexMap, HEADER_ALIASES.email)),
+            appliedJob: toNullableString(getCell(row, indexMap, HEADER_ALIASES.appliedJob)),
+            appliedLocation: toNullableString(getCell(row, indexMap, HEADER_ALIASES.appliedLocation)),
+            phone: toNullableString(getCell(row, indexMap, HEADER_ALIASES.phone)),
+            age: parseAge(getCell(row, indexMap, HEADER_ALIASES.age)),
+            birthDate: parseDateValue(getCell(row, indexMap, HEADER_ALIASES.birthDate)),
+            gender: toNullableString(getCell(row, indexMap, HEADER_ALIASES.gender)),
+            assigneeName: toNullableString(getCell(row, indexMap, HEADER_ALIASES.assigneeName)),
+            responseStatus: toNullableString(getCell(row, indexMap, HEADER_ALIASES.responseStatus)),
+            notes: toNullableString(getCell(row, indexMap, HEADER_ALIASES.notes)),
+            nextActionDate: parseDateValue(getCell(row, indexMap, HEADER_ALIASES.nextActionDate)),
+            connectedAt: parseDateValue(getCell(row, indexMap, HEADER_ALIASES.connectedAt)),
+            primaryScheduledDate: parseDateValue(getCell(row, indexMap, HEADER_ALIASES.primaryScheduledDate)),
+            primaryConducted: parseBoolean(getCell(row, indexMap, HEADER_ALIASES.primaryConducted)),
+            secScheduledDate: parseDateValue(getCell(row, indexMap, HEADER_ALIASES.secScheduledDate)),
+            secConducted: parseBoolean(getCell(row, indexMap, HEADER_ALIASES.secConducted)),
+            offered: parseBoolean(getCell(row, indexMap, HEADER_ALIASES.offered)),
+            joinedDate: parseDateValue(getCell(row, indexMap, HEADER_ALIASES.joinedDate)),
+            isValidApplicant: parseBoolean(getCell(row, indexMap, HEADER_ALIASES.isValidApplicant)),
+            appliedAt: parseDateValue(getCell(row, indexMap, HEADER_ALIASES.appliedAt)),
+        })
+    }
 
-            const baseValues: Partial<typeof schema.applicants.$inferInsert> = {
-                companyId,
-                name,
-                caseName: toNullableString(getCell(row, indexMap, HEADER_ALIASES.caseName)),
-                email: toNullableString(getCell(row, indexMap, HEADER_ALIASES.email)),
-                appliedJob: toNullableString(getCell(row, indexMap, HEADER_ALIASES.appliedJob)),
-                appliedLocation: toNullableString(getCell(row, indexMap, HEADER_ALIASES.appliedLocation)),
-                phone: toNullableString(getCell(row, indexMap, HEADER_ALIASES.phone)),
-                gender: toNullableString(getCell(row, indexMap, HEADER_ALIASES.gender)),
-                assigneeName: toNullableString(getCell(row, indexMap, HEADER_ALIASES.assigneeName)),
-                responseStatus: toNullableString(getCell(row, indexMap, HEADER_ALIASES.responseStatus)),
-                notes: toNullableString(getCell(row, indexMap, HEADER_ALIASES.notes)),
-                age: parseAge(getCell(row, indexMap, HEADER_ALIASES.age)),
-                birthDate: parseDateValue(getCell(row, indexMap, HEADER_ALIASES.birthDate)),
-                nextActionDate: parseDateValue(getCell(row, indexMap, HEADER_ALIASES.nextActionDate)),
-                connectedAt: parseDateValue(getCell(row, indexMap, HEADER_ALIASES.connectedAt)),
-                primaryScheduledDate: parseDateValue(getCell(row, indexMap, HEADER_ALIASES.primaryScheduledDate)),
-                secScheduledDate: parseDateValue(getCell(row, indexMap, HEADER_ALIASES.secScheduledDate)),
-                joinedDate: parseDateValue(getCell(row, indexMap, HEADER_ALIASES.joinedDate)),
-                updatedAt: new Date(),
-            }
+    // Phase 2: Resolve all companies with minimal queries
+    const uniqueCompanyNames = [...new Set(parsedRows.map((r) => normalizeCompanyName(r.companyName)).filter(Boolean))]
+    const companyMap = new Map<string, string>() // name → id
 
-            const isValidApplicant = parseBoolean(getCell(row, indexMap, HEADER_ALIASES.isValidApplicant))
-            if (isValidApplicant !== undefined) {
-                baseValues.isValidApplicant = isValidApplicant
-            }
+    if (uniqueCompanyNames.length > 0) {
+        // Fetch all existing companies in one query (split into chunks of 200 for safety)
+        for (const chunk of chunkArray(uniqueCompanyNames, 200)) {
+            const existing = await db
+                .select({ id: schema.companies.id, name: schema.companies.name })
+                .from(schema.companies)
+                .where(inArray(schema.companies.name, chunk))
+            for (const c of existing) companyMap.set(c.name, c.id)
+        }
 
-            const primaryConducted = parseBoolean(getCell(row, indexMap, HEADER_ALIASES.primaryConducted))
-            if (primaryConducted !== undefined) {
-                baseValues.primaryConducted = primaryConducted
-            }
-
-            const secConducted = parseBoolean(getCell(row, indexMap, HEADER_ALIASES.secConducted))
-            if (secConducted !== undefined) {
-                baseValues.secConducted = secConducted
-            }
-
-            const offered = parseBoolean(getCell(row, indexMap, HEADER_ALIASES.offered))
-            if (offered !== undefined) {
-                baseValues.offered = offered
-            }
-
-            if (applicantId) {
-                const existing = await db
-                    .select({ id: schema.applicants.id })
-                    .from(schema.applicants)
-                    .where(eq(schema.applicants.id, applicantId))
+        // Create missing companies
+        const missing = uniqueCompanyNames.filter((n) => !companyMap.has(n))
+        for (const companyName of missing) {
+            const id = crypto.randomUUID()
+            try {
+                await db.insert(schema.companies).values({ id, name: companyName })
+                companyMap.set(companyName, id)
+            } catch (error) {
+                if (!isCompanyNameUniqueConstraintError(error)) throw error
+                // Race condition: fetch again
+                const raced = await db
+                    .select({ id: schema.companies.id })
+                    .from(schema.companies)
+                    .where(eq(schema.companies.name, companyName))
                     .get()
-
-                if (existing) {
-                    const updateValues = { ...baseValues }
-                    if (appliedAt) {
-                        updateValues.appliedAt = appliedAt
-                    }
-                    await db
-                        .update(schema.applicants)
-                        .set(updateValues)
-                        .where(eq(schema.applicants.id, applicantId))
-                    updated += 1
-                    continue
-                }
+                if (raced) companyMap.set(companyName, raced.id)
             }
+        }
+    }
 
-            const id = applicantId || crypto.randomUUID()
-            const insertValues: typeof schema.applicants.$inferInsert = {
+    // Phase 3: Check all existing applicant IDs in one query
+    const rowsWithId = parsedRows.filter((r) => r.applicantId)
+    const existingIdSet = new Set<string>()
+
+    if (rowsWithId.length > 0) {
+        const allIds = rowsWithId.map((r) => r.applicantId)
+        for (const chunk of chunkArray(allIds, 200)) {
+            const existing = await db
+                .select({ id: schema.applicants.id })
+                .from(schema.applicants)
+                .where(inArray(schema.applicants.id, chunk))
+            for (const r of existing) existingIdSet.add(r.id)
+        }
+    }
+
+    // Phase 4: Categorize into updates and inserts
+    type UpdateItem = { id: string; values: Partial<typeof schema.applicants.$inferInsert> }
+    type InsertItem = typeof schema.applicants.$inferInsert
+
+    const toUpdate: UpdateItem[] = []
+    const toInsert: InsertItem[] = []
+    const batchErrors: string[] = []
+
+    for (const r of parsedRows) {
+        const normalizedCompany = normalizeCompanyName(r.companyName)
+        const companyId = normalizedCompany ? companyMap.get(normalizedCompany) : undefined
+        if (!companyId) {
+            batchErrors.push(`行${r.rowNo}: 企業「${r.companyName}」を解決できませんでした。`)
+            skipped += 1
+            continue
+        }
+
+        const baseValues: Partial<typeof schema.applicants.$inferInsert> = {
+            companyId,
+            name: r.name,
+            caseName: r.caseName,
+            email: r.email,
+            appliedJob: r.appliedJob,
+            appliedLocation: r.appliedLocation,
+            phone: r.phone,
+            gender: r.gender,
+            assigneeName: r.assigneeName,
+            responseStatus: r.responseStatus,
+            notes: r.notes,
+            age: r.age,
+            birthDate: r.birthDate ?? undefined,
+            nextActionDate: r.nextActionDate ?? undefined,
+            connectedAt: r.connectedAt ?? undefined,
+            primaryScheduledDate: r.primaryScheduledDate ?? undefined,
+            secScheduledDate: r.secScheduledDate ?? undefined,
+            joinedDate: r.joinedDate ?? undefined,
+            updatedAt: new Date(),
+        }
+        if (r.isValidApplicant !== undefined) baseValues.isValidApplicant = r.isValidApplicant
+        if (r.primaryConducted !== undefined) baseValues.primaryConducted = r.primaryConducted
+        if (r.secConducted !== undefined) baseValues.secConducted = r.secConducted
+        if (r.offered !== undefined) baseValues.offered = r.offered
+
+        if (r.applicantId && existingIdSet.has(r.applicantId)) {
+            const updateValues = { ...baseValues }
+            if (r.appliedAt) updateValues.appliedAt = r.appliedAt
+            toUpdate.push({ id: r.applicantId, values: updateValues })
+        } else {
+            const id = r.applicantId || crypto.randomUUID()
+            toInsert.push({
                 id,
                 companyId,
-                name,
-                appliedAt: appliedAt || new Date(),
+                name: r.name,
+                appliedAt: r.appliedAt || new Date(),
                 ...baseValues,
-            }
-            await db.insert(schema.applicants).values(insertValues)
-            created += 1
-        } catch (error) {
-            skipped += 1
-            const message = error instanceof Error ? error.message : String(error)
-            errors.push(`行${rowNo}: ${message}`)
+            })
         }
+    }
+
+    // Phase 5: Execute updates in batches
+    let updated = 0
+    let created = 0
+
+    for (const chunk of chunkArray(toUpdate, BATCH_SIZE)) {
+        const stmts = chunk.map((item) =>
+            db.update(schema.applicants).set(item.values).where(eq(schema.applicants.id, item.id))
+        )
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await db.batch(stmts as any)
+        updated += chunk.length
+    }
+
+    // Execute inserts in batches
+    for (const chunk of chunkArray(toInsert, BATCH_SIZE)) {
+        const stmts = chunk.map((item) => db.insert(schema.applicants).values(item))
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await db.batch(stmts as any)
+        created += chunk.length
     }
 
     if (created > 0 || updated > 0) {
@@ -188,56 +289,23 @@ export async function POST(request: NextRequest) {
         revalidatePath("/calls")
     }
 
+    const errors = [...parseErrors, ...batchErrors].slice(0, 50)
+
     return NextResponse.json({
         success: true,
         created,
         updated,
         skipped,
-        errors: errors.slice(0, 50),
+        errors,
     })
 }
 
-async function resolveCompanyId(companyName: string, cache: Map<string, string>) {
-    const normalized = normalizeCompanyName(companyName)
-    if (!normalized) {
-        throw new Error("企業名が空です。")
+function chunkArray<T>(arr: T[], size: number): T[][] {
+    const chunks: T[][] = []
+    for (let i = 0; i < arr.length; i += size) {
+        chunks.push(arr.slice(i, i + size))
     }
-
-    if (cache.has(normalized)) {
-        return cache.get(normalized)!
-    }
-
-    const existing = await db
-        .select({ id: schema.companies.id })
-        .from(schema.companies)
-        .where(eq(schema.companies.name, normalized))
-        .get()
-    if (existing) {
-        cache.set(normalized, existing.id)
-        return existing.id
-    }
-
-    const id = crypto.randomUUID()
-    try {
-        await db.insert(schema.companies).values({ id, name: normalized })
-        cache.set(normalized, id)
-        return id
-    } catch (error) {
-        if (!isCompanyNameUniqueConstraintError(error)) {
-            throw error
-        }
-
-        const raced = await db
-            .select({ id: schema.companies.id })
-            .from(schema.companies)
-            .where(eq(schema.companies.name, normalized))
-            .get()
-        if (!raced) {
-            throw new Error("企業情報の登録に失敗しました。")
-        }
-        cache.set(normalized, raced.id)
-        return raced.id
-    }
+    return chunks
 }
 
 async function readCsvText(file: File) {
