@@ -124,7 +124,7 @@ const COLUMNS: Column[] = [
     { key: "offerRate", label: "有効応募からの内定率" },
     { key: "joinRate", label: "有効応募からの入社率" },
     { key: "preInterviewDeclineRate", label: "面接前辞退率" },
-    { key: "offerDeclineRate", label: "内定後辞退率" },
+    { key: "offerDeclineRate", label: "内定後/入社前辞退率" },
     { key: "validApplicantRate", label: "有効応募率" },
 ]
 
@@ -405,7 +405,7 @@ function createSummaryRow(rows: CompanyYieldRow[], companyName: string): Company
         },
     )
 
-    total.connectedApplicantRate = toRate(total.connectedValidApplicantCount, total.validApplicants)
+    total.connectedApplicantRate = toRate(total.connectedApplicantCount, total.validApplicants)
     total.interviewScheduledRate = toRate(total.interviewScheduledCount, total.validApplicants)
     total.interviewConductedRate = toRate(total.interviewConductedCount, total.validApplicants)
     total.offerRate = toRate(total.offered, total.validApplicants)
@@ -413,7 +413,7 @@ function createSummaryRow(rows: CompanyYieldRow[], companyName: string): Company
     total.joinRate = toRate(total.joined, total.validApplicants)
     total.preInterviewDeclineRate = toRate(total.interviewDeclinedBefore, total.interviewScheduledCount)
     total.offerDeclineRate = toRate(total.offerDeclined, total.offered)
-    total.validApplicantRate = toRate(total.validApplicants, total.totalApplicants)
+    total.validApplicantRate = toRate(total.validApplicants, total.uniqueApplicants)
 
     return total
 }

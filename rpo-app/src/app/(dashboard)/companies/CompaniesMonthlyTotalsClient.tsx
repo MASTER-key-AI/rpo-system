@@ -100,7 +100,7 @@ export default function CompaniesMonthlyTotalsClient({ rows, year, month }: Prop
         return {
             month: 0,
             ...aggregate,
-            validApplicantRate: toRate(aggregate.validApplicants, aggregate.totalApplicants),
+            validApplicantRate: toRate(aggregate.validApplicants, aggregate.uniqueApplicants),
             connectedApplicantRate: toRate(aggregate.connectedApplicantCount, aggregate.validApplicants),
             interviewScheduledRate: toRate(aggregate.interviewScheduledCount, aggregate.validApplicants),
             interviewConductedRate: toRate(aggregate.interviewConductedCount, aggregate.validApplicants),
@@ -133,7 +133,7 @@ export default function CompaniesMonthlyTotalsClient({ rows, year, month }: Prop
         { label: "有効応募からの内定率", value: total.offerRate, tone: "success" },
         { label: "有効応募からの入社率", value: total.joinRate, tone: "success" },
         { label: "面接前辞退率", value: total.preInterviewDeclineRate, tone: "warning" },
-        { label: "内定後辞退率", value: total.offerDeclineRate, tone: "warning" },
+        { label: "内定後/入社前辞退率", value: total.offerDeclineRate, tone: "warning" },
     ]
 
     return (
@@ -191,7 +191,7 @@ export default function CompaniesMonthlyTotalsClient({ rows, year, month }: Prop
                                 <th className="px-3 py-3">有効応募からの内定率</th>
                                 <th className="px-3 py-3">有効応募からの入社率</th>
                                 <th className="px-3 py-3">面接前辞退率</th>
-                                <th className="px-3 py-3">内定後辞退率</th>
+                                <th className="px-3 py-3">内定後/入社前辞退率</th>
                                 <th className="px-3 py-3">有効応募率</th>
                             </tr>
                         </thead>

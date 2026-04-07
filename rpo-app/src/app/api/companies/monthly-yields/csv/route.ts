@@ -33,7 +33,7 @@ const CSV_COLUMNS: CsvColumn[] = [
     { key: "offerRate", label: "有効応募からの内定率" },
     { key: "joinRate", label: "有効応募からの入社率" },
     { key: "preInterviewDeclineRate", label: "面接前辞退率" },
-    { key: "offerDeclineRate", label: "内定後辞退率" },
+    { key: "offerDeclineRate", label: "内定後/入社前辞退率" },
 ]
 
 export async function GET(request: NextRequest) {
