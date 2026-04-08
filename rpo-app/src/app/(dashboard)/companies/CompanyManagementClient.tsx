@@ -28,6 +28,7 @@ type Props = {
     companies: CompanyItem[]
     cases: CaseItem[]
     groups: GroupItem[]
+    createCompanyAction: (formData: FormData) => Promise<{ error?: string }>
     deleteCompanyAction: (formData: FormData) => Promise<void>
     deleteCaseAction: (formData: FormData) => Promise<void>
     createGroupAction: (formData: FormData) => Promise<void>
@@ -46,6 +47,7 @@ export default function CompanyManagementClient({
     companies,
     cases,
     groups,
+    createCompanyAction,
     deleteCompanyAction,
     deleteCaseAction,
     createGroupAction,
@@ -56,6 +58,8 @@ export default function CompanyManagementClient({
     const [pendingCompanyId, setPendingCompanyId] = useState<string | null>(null)
     const [pendingCaseKey, setPendingCaseKey] = useState<string | null>(null)
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
+    const [newCompanyName, setNewCompanyName] = useState("")
+    const [isCreatingCompany, startCreatingCompany] = useTransition()
     const [newGroupName, setNewGroupName] = useState("")
     const [isCreatingGroup, startCreatingGroup] = useTransition()
 
@@ -118,6 +122,26 @@ export default function CompanyManagementClient({
         } catch (error) {
             setErrorMessage(getErrorMessage(error))
         }
+    }
+
+    const handleCreateCompany = () => {
+        if (!newCompanyName.trim()) return
+        setErrorMessage(null)
+        startCreatingCompany(async () => {
+            try {
+                const formData = new FormData()
+                formData.set("name", newCompanyName.trim())
+                const result = await createCompanyAction(formData)
+                if (result.error) {
+                    setErrorMessage(result.error)
+                } else {
+                    setNewCompanyName("")
+                    router.refresh()
+                }
+            } catch (error) {
+                setErrorMessage(getErrorMessage(error))
+            }
+        })
     }
 
     const handleCreateGroup = () => {
@@ -224,6 +248,8 @@ export default function CompanyManagementClient({
             </div>
 
             {/* 企業一覧 */}
+            <div className="space-y-2">
+                <h3 className="text-sm font-semibold text-foreground">企業管理</h3>
             <div className="overflow-auto">
                 <table className="w-full text-sm text-left">
                     <thead className="text-xs text-muted-foreground uppercase bg-muted/20 border-b border-border">
@@ -278,6 +304,26 @@ export default function CompanyManagementClient({
                         )}
                     </tbody>
                 </table>
+            </div>
+                <div className="flex items-center gap-2">
+                    <input
+                        type="text"
+                        value={newCompanyName}
+                        onChange={(e) => setNewCompanyName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") handleCreateCompany() }}
+                        placeholder="新規企業名"
+                        className="flex-1 h-8 px-3 rounded-md border border-input text-sm bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                    <button
+                        type="button"
+                        onClick={handleCreateCompany}
+                        disabled={isCreatingCompany || !newCompanyName.trim()}
+                        className="inline-flex items-center gap-1 h-8 px-3 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                        <Plus className="w-3.5 h-3.5" />
+                        {isCreatingCompany ? "追加中..." : "追加"}
+                    </button>
+                </div>
             </div>
 
             {/* 案件一覧 */}

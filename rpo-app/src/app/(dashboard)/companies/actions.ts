@@ -1,7 +1,19 @@
 "use server";
 
-import { deleteCompany, deleteCase } from "@/lib/actions"
+import { createCompany, deleteCompany, deleteCase } from "@/lib/actions"
 import { createCompanyGroup, deleteCompanyGroup, addCompanyToGroup, removeCompanyFromGroup } from "@/lib/actions/groups"
+
+export async function createCompanyAction(formData: FormData): Promise<{ error?: string }> {
+    "use server"
+    const name = String(formData.get("name") || "").trim()
+    try {
+        await createCompany(name)
+        return {}
+    } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        return { error: detail }
+    }
+}
 
 export async function deleteCompanyAction(formData: FormData) {
     "use server"

@@ -3,7 +3,7 @@ import Link from "next/link"
 import { getCompanyManagementList, getCaseManagementList } from "@/lib/actions"
 import { getCompanyGroups } from "@/lib/actions/groups"
 import CompanyManagementClient from "../CompanyManagementClient"
-import { deleteCompanyAction, deleteCaseAction, createGroupAction, deleteGroupAction, setCompanyGroupAction } from "../actions"
+import { createCompanyAction, deleteCompanyAction, deleteCaseAction, createGroupAction, deleteGroupAction, setCompanyGroupAction } from "../actions"
 
 export const dynamic = "force-dynamic"
 
@@ -39,6 +39,7 @@ export default async function CompanyManagePage() {
                 companies={managementCompanies}
                 cases={managementCases}
                 groups={groups}
+                createCompanyAction={createCompanyAction}
                 deleteCompanyAction={deleteCompanyAction}
                 deleteCaseAction={deleteCaseAction}
                 createGroupAction={createGroupAction}
