@@ -1,9 +1,18 @@
 "use server";
 
 import { db, schema } from "@/db";
-import { and, desc, eq, inArray, like, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { isCompanyNameUniqueConstraintError, normalizeCompanyName } from "@/lib/company-name";
+
+export type ApplicantSortField =
+    | "appliedAt"
+    | "nextActionDate"
+    | "connectedAt"
+    | "primaryScheduledDate"
+    | "secScheduledDate"
+    | "joinedDate"
+export type ApplicantSortOrder = "asc" | "desc"
 
 export type ApplicantListResult = {
     applicants: {
@@ -28,6 +37,7 @@ export type ApplicantListResult = {
         isValidApplicant: boolean | null
         connectedAt: string | number | Date | null
         nextActionDate: string | number | Date | null
+        nextActionContent: string | null
         primaryScheduledDate: string | number | Date | null
         primaryConductedDate: string | number | Date | null
         primaryConducted: boolean | null
@@ -54,6 +64,8 @@ export type ApplicantFilters = {
     offered?: "true" | "false"
     appliedDateFrom?: string
     appliedDateTo?: string
+    sortField?: ApplicantSortField
+    sortOrder?: ApplicantSortOrder
 }
 
 function parseAppliedDateFilter(value?: string) {
@@ -101,6 +113,7 @@ export async function getApplicants(
     const currentPageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.min(Math.max(Math.floor(pageSize), 1), 200) : 50
     const appliedDateFrom = parseAppliedDateFilter(filters.appliedDateFrom)
     const appliedDateTo = parseAppliedDateFilter(filters.appliedDateTo)
+    const sortOrder: ApplicantSortOrder = filters.sortOrder === "asc" ? "asc" : "desc"
 
     const conditions = []
 
@@ -125,6 +138,7 @@ export async function getApplicants(
                 like(schema.applicants.gender, keywordPattern),
                 like(schema.applicants.responseStatus, keywordPattern),
                 like(schema.applicants.notes, keywordPattern),
+                like(schema.applicants.nextActionContent, keywordPattern),
                 sql`coalesce(${schema.applicants.assigneeName}, ${schema.users.name}, '') like ${keywordPattern}`,
                 sql`cast(${schema.applicants.age} as text) like ${keywordPattern}`,
                 sql`strftime('%Y-%m-%d', ${schema.applicants.appliedAt}, 'unixepoch') like ${keywordPattern}`,
@@ -205,6 +219,7 @@ export async function getApplicants(
             isValidApplicant: schema.applicants.isValidApplicant,
             connectedAt: schema.applicants.connectedAt,
             nextActionDate: schema.applicants.nextActionDate,
+            nextActionContent: schema.applicants.nextActionContent,
             primaryScheduledDate: schema.applicants.primaryScheduledDate,
             primaryConductedDate: schema.applicants.primaryConductedDate,
             primaryConducted: schema.applicants.primaryConducted,
@@ -233,9 +248,36 @@ export async function getApplicants(
     const safePage = total === 0 ? 1 : Math.min(currentPage, totalPages)
     const safeOffset = (safePage - 1) * currentPageSize
 
-    const applicants = await listedQuery
-        // Default sort: newest registered applicants first.
-        .orderBy(desc(schema.applicants.createdAt), desc(schema.applicants.appliedAt))
+    const dateSortColumn =
+        filters.sortField === "appliedAt"
+            ? schema.applicants.appliedAt
+            : filters.sortField === "nextActionDate"
+            ? schema.applicants.nextActionDate
+            : filters.sortField === "connectedAt"
+                ? schema.applicants.connectedAt
+                : filters.sortField === "primaryScheduledDate"
+                    ? schema.applicants.primaryScheduledDate
+                    : filters.sortField === "secScheduledDate"
+                        ? schema.applicants.secScheduledDate
+                        : filters.sortField === "joinedDate"
+                            ? schema.applicants.joinedDate
+                            : null
+
+    const applicants = await (
+        dateSortColumn
+            ? listedQuery.orderBy(
+                // Keep rows without date at the bottom for both asc/desc.
+                sql`${dateSortColumn} IS NULL`,
+                sortOrder === "asc" ? asc(dateSortColumn) : desc(dateSortColumn),
+                desc(schema.applicants.appliedAt),
+                desc(schema.applicants.createdAt),
+            )
+            : listedQuery.orderBy(
+                // Default sort: latest applied date first.
+                desc(schema.applicants.appliedAt),
+                desc(schema.applicants.createdAt),
+            )
+    )
         .limit(currentPageSize)
         .offset(safeOffset)
         .all();
@@ -262,6 +304,7 @@ export async function getApplicants(
             isValidApplicant: app.isValidApplicant ?? null,
             connectedAt: app.connectedAt ?? null,
             nextActionDate: app.nextActionDate ?? null,
+            nextActionContent: app.nextActionContent ?? null,
             primaryScheduledDate: app.primaryScheduledDate ?? null,
             primaryConductedDate: app.primaryConductedDate ?? null,
             primaryConducted: app.primaryConducted ?? null,

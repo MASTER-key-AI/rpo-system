@@ -1,5 +1,6 @@
 import { auth } from "@/auth"
 import { getCompanyMonthlyTotals } from "@/lib/actions/yields"
+import { getCompanyYieldCustomDateRange } from "@/lib/company-yield-period"
 import { NextRequest, NextResponse } from "next/server"
 
 export const runtime = "nodejs"
@@ -45,15 +46,26 @@ export async function GET(request: NextRequest) {
     const { searchParams } = request.nextUrl
     const year = parseYear(searchParams.get("year"))
     const month = parseMonth(searchParams.get("month"))
-    const rows = await getCompanyMonthlyTotals(year)
-    const targetRows = typeof month === "number"
-        ? rows.filter((row) => row.month === month)
-        : rows
+    const week = parseWeek(searchParams.get("week"))
+    const customDateRange = getCompanyYieldCustomDateRange(searchParams.get("startDate"), searchParams.get("endDate"))
+    const rows = await getCompanyMonthlyTotals(year, {
+        month,
+        week,
+        periodStartAt: customDateRange.startAt,
+        periodEndAt: customDateRange.endAt,
+    })
+    const targetRows = rows
 
     const header = CSV_COLUMNS.map((column) => escapeCsv(column.label)).join(",")
     const body = targetRows.map((row) => CSV_COLUMNS.map((column) => escapeCsv(String(row[column.key] ?? ""))).join(",")).join("\n")
     const csv = `\uFEFF${header}\n${body}\n`
-    const filename = buildFilename(year, month)
+    const filename = buildFilename({
+        year,
+        month,
+        week,
+        startDate: customDateRange.startDate,
+        endDate: customDateRange.endDate,
+    })
 
     return new NextResponse(csv, {
         headers: {
@@ -78,10 +90,39 @@ function parseMonth(raw: string | null): number | undefined {
     return parsed
 }
 
-function buildFilename(year?: number, month?: number) {
+function parseWeek(raw: string | null): number | undefined {
+    if (!raw) return undefined
+    const parsed = Number.parseInt(raw, 10)
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 5) return undefined
+    return parsed
+}
+
+function sanitizeDateToken(raw?: string) {
+    if (!raw) return "open"
+    return raw.replaceAll("-", "")
+}
+
+function buildFilename({
+    year,
+    month,
+    week,
+    startDate,
+    endDate,
+}: {
+    year?: number
+    month?: number
+    week?: number
+    startDate?: string
+    endDate?: string
+}) {
+    if (startDate || endDate) {
+        return `company-monthly-yields_${sanitizeDateToken(startDate)}-${sanitizeDateToken(endDate)}.csv`
+    }
+
     const yyyy = year ? String(year) : "all"
     const mm = month ? String(month).padStart(2, "0") : "all"
-    return `company-monthly-yields_${yyyy}-${mm}.csv`
+    const ww = week ? `-w${week}` : ""
+    return `company-monthly-yields_${yyyy}-${mm}${ww}.csv`
 }
 
 function escapeCsv(value: string) {

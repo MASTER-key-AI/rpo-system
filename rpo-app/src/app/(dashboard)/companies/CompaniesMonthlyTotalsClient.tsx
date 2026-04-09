@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { Fragment, useMemo, useState } from "react"
 
 type CompanyMonthlyTotalRow = {
     month: number
@@ -27,8 +27,35 @@ type CompanyMonthlyTotalRow = {
     offerDeclineRate: string
 }
 
+type CompanyWeeklyTotalRow = {
+    month: number
+    week: number
+    totalApplicants: number
+    uniqueApplicants: number
+    validApplicants: number
+    connectedApplicantCount: number
+    notConnectedCount: number
+    phoneAppointmentCount: number
+    interviewScheduledCount: number
+    interviewConductedCount: number
+    offered: number
+    offerPendingCount: number
+    joined: number
+    preInterviewDeclinedCount: number
+    offerDeclined: number
+    validApplicantRate: string
+    connectedApplicantRate: string
+    interviewScheduledRate: string
+    interviewConductedRate: string
+    offerRate: string
+    joinRate: string
+    preInterviewDeclineRate: string
+    offerDeclineRate: string
+}
+
 type Props = {
     rows: CompanyMonthlyTotalRow[]
+    weeklyRows?: CompanyWeeklyTotalRow[]
     year?: number
     month?: number
 }
@@ -49,18 +76,48 @@ function formatPeriod(year?: number, month?: number) {
     return `${year}年${String(month).padStart(2, "0")}月`
 }
 
-function getPeriodRows(rows: CompanyMonthlyTotalRow[], month?: number) {
+function getPeriodRows<T extends { month: number }>(rows: T[], month?: number) {
     if (!month) {
         return [...rows]
     }
     return rows.filter((row) => row.month === month)
 }
 
-export default function CompaniesMonthlyTotalsClient({ rows, year, month }: Props) {
+export default function CompaniesMonthlyTotalsClient({ rows, weeklyRows = [], year, month }: Props) {
+    const [expandedMonths, setExpandedMonths] = useState<Set<number>>(new Set())
+
     const filteredRows = useMemo(
         () => getPeriodRows(rows, month).sort((left, right) => left.month - right.month),
         [rows, month],
     )
+    const weeklyRowsByMonth = useMemo(() => {
+        const map = new Map<number, CompanyWeeklyTotalRow[]>()
+        const scopedRows = getPeriodRows(weeklyRows, month)
+        for (const row of scopedRows) {
+            const existing = map.get(row.month)
+            if (existing) {
+                existing.push(row)
+            } else {
+                map.set(row.month, [row])
+            }
+        }
+        for (const monthRows of map.values()) {
+            monthRows.sort((left, right) => left.week - right.week)
+        }
+        return map
+    }, [weeklyRows, month])
+
+    const toggleMonth = (targetMonth: number) => {
+        setExpandedMonths((current) => {
+            const next = new Set(current)
+            if (next.has(targetMonth)) {
+                next.delete(targetMonth)
+            } else {
+                next.add(targetMonth)
+            }
+            return next
+        })
+    }
 
     const total = useMemo(() => {
         const aggregate = filteredRows.reduce(
@@ -138,19 +195,18 @@ export default function CompaniesMonthlyTotalsClient({ rows, year, month }: Prop
 
     return (
         <div className="space-y-5">
-            <section className="relative overflow-hidden rounded-2xl border border-border/70 bg-gradient-to-br from-card to-muted/20 shadow-card">
-                <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary via-primary/70 to-transparent" />
-                <div className="relative px-4 py-4 sm:px-6 sm:py-5">
-                    <p className="inline-flex items-center rounded-full bg-primary/10 text-primary px-2.5 py-1 text-[11px] font-semibold">
+            <section className="rounded-2xl border border-border bg-card shadow-card">
+                <div className="px-4 py-4 sm:px-6 sm:py-5">
+                    <p className="inline-flex items-center rounded-full border border-border bg-background px-2.5 py-1 text-[11px] font-semibold text-foreground/80">
                         {formatPeriod(year, month)}
                     </p>
-                    <h2 className="mt-3 text-lg font-bold text-foreground">{formatYear(year)} 全企業累計サマリー</h2>
+                    <h2 className="mt-3 text-lg font-bold text-foreground">{formatYear(year)} KPIサマリー</h2>
                     <p className="text-sm text-muted-foreground mt-1">
                         応募・通電・面接・内定・入社の流れを一枚で確認できます
                     </p>
 
                     <div className="mt-4">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">主要KPI</p>
+                        <p className="text-xs font-semibold uppercase tracking-wider text-foreground/70">主要KPI</p>
                         <div className="mt-2 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 text-sm">
                             {keyIndicators.map((card) => (
                                 <SummaryCard key={card.label} label={card.label} value={card.value} tone={card.tone} />
@@ -158,7 +214,7 @@ export default function CompaniesMonthlyTotalsClient({ rows, year, month }: Prop
                         </div>
                     </div>
                     <div className="mt-4">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">転換率KPI</p>
+                        <p className="text-xs font-semibold uppercase tracking-wider text-foreground/70">転換率KPI</p>
                         <div className="mt-2 grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3 text-sm">
                             {conversionIndicators.map((card) => (
                                 <SummaryCard key={card.label} label={card.label} value={card.value} tone={card.tone} />
@@ -208,30 +264,77 @@ export default function CompaniesMonthlyTotalsClient({ rows, year, month }: Prop
                                     </td>
                                 </tr>
                             ) : (
-                                filteredRows.map((row) => (
-                                    <tr key={row.month} className="border-b border-border/60 hover:bg-muted/20">
-                                        <td className="px-3 py-2 font-semibold">{row.month}月</td>
-                                        <td className="px-3 py-2">{row.totalApplicants}</td>
-                                        <td className="px-3 py-2">{row.uniqueApplicants}</td>
-                                        <td className="px-3 py-2">{row.validApplicants}</td>
-                                        <td className="px-3 py-2">{row.connectedApplicantCount}</td>
-                                        <td className="px-3 py-2">{row.notConnectedCount}</td>
-                                        <td className="px-3 py-2">{row.phoneAppointmentCount}</td>
-                                        <td className="px-3 py-2">{row.interviewScheduledCount}</td>
-                                        <td className="px-3 py-2">{row.interviewConductedCount}</td>
-                                        <td className="px-3 py-2">{row.offered}</td>
-                                        <td className="px-3 py-2">{row.offerPendingCount}</td>
-                                        <td className="px-3 py-2">{row.joined}</td>
-                                        <td className="px-3 py-2">{row.connectedApplicantRate}</td>
-                                        <td className="px-3 py-2">{row.interviewScheduledRate}</td>
-                                        <td className="px-3 py-2">{row.interviewConductedRate}</td>
-                                        <td className="px-3 py-2">{row.offerRate}</td>
-                                        <td className="px-3 py-2">{row.joinRate}</td>
-                                        <td className="px-3 py-2">{row.preInterviewDeclineRate}</td>
-                                        <td className="px-3 py-2">{row.offerDeclineRate}</td>
-                                        <td className="px-3 py-2">{row.validApplicantRate}</td>
-                                    </tr>
-                                ))
+                                filteredRows.map((row) => {
+                                    const monthWeeklyRows = weeklyRowsByMonth.get(row.month) ?? []
+                                    const canExpand = monthWeeklyRows.length > 0
+                                    const isExpanded = expandedMonths.has(row.month)
+
+                                    return (
+                                        <Fragment key={row.month}>
+                                            <tr className="border-b border-border/60 hover:bg-muted/20">
+                                                <td className="px-3 py-2 font-semibold">
+                                                    {canExpand ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => toggleMonth(row.month)}
+                                                            className="inline-flex items-center gap-1.5 w-full text-left cursor-pointer hover:text-foreground"
+                                                            aria-label={`${row.month}月の週別成績を${isExpanded ? "閉じる" : "表示する"}`}
+                                                        >
+                                                            <span className="inline-flex w-4 justify-center text-[11px] text-muted-foreground">{isExpanded ? "▼" : "▶"}</span>
+                                                            <span>{row.month}月</span>
+                                                        </button>
+                                                    ) : (
+                                                        <span>{row.month}月</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-3 py-2">{row.totalApplicants}</td>
+                                                <td className="px-3 py-2">{row.uniqueApplicants}</td>
+                                                <td className="px-3 py-2">{row.validApplicants}</td>
+                                                <td className="px-3 py-2">{row.connectedApplicantCount}</td>
+                                                <td className="px-3 py-2">{row.notConnectedCount}</td>
+                                                <td className="px-3 py-2">{row.phoneAppointmentCount}</td>
+                                                <td className="px-3 py-2">{row.interviewScheduledCount}</td>
+                                                <td className="px-3 py-2">{row.interviewConductedCount}</td>
+                                                <td className="px-3 py-2">{row.offered}</td>
+                                                <td className="px-3 py-2">{row.offerPendingCount}</td>
+                                                <td className="px-3 py-2">{row.joined}</td>
+                                                <td className="px-3 py-2">{row.connectedApplicantRate}</td>
+                                                <td className="px-3 py-2">{row.interviewScheduledRate}</td>
+                                                <td className="px-3 py-2">{row.interviewConductedRate}</td>
+                                                <td className="px-3 py-2">{row.offerRate}</td>
+                                                <td className="px-3 py-2">{row.joinRate}</td>
+                                                <td className="px-3 py-2">{row.preInterviewDeclineRate}</td>
+                                                <td className="px-3 py-2">{row.offerDeclineRate}</td>
+                                                <td className="px-3 py-2">{row.validApplicantRate}</td>
+                                            </tr>
+                                            {isExpanded &&
+                                                monthWeeklyRows.map((weekRow) => (
+                                                    <tr key={`${weekRow.month}-${weekRow.week}`} className="border-b border-border/40 bg-muted/10 hover:bg-muted/20">
+                                                        <td className="px-3 py-2 pl-8 text-muted-foreground font-medium">第{weekRow.week}週</td>
+                                                        <td className="px-3 py-2">{weekRow.totalApplicants}</td>
+                                                        <td className="px-3 py-2">{weekRow.uniqueApplicants}</td>
+                                                        <td className="px-3 py-2">{weekRow.validApplicants}</td>
+                                                        <td className="px-3 py-2">{weekRow.connectedApplicantCount}</td>
+                                                        <td className="px-3 py-2">{weekRow.notConnectedCount}</td>
+                                                        <td className="px-3 py-2">{weekRow.phoneAppointmentCount}</td>
+                                                        <td className="px-3 py-2">{weekRow.interviewScheduledCount}</td>
+                                                        <td className="px-3 py-2">{weekRow.interviewConductedCount}</td>
+                                                        <td className="px-3 py-2">{weekRow.offered}</td>
+                                                        <td className="px-3 py-2">{weekRow.offerPendingCount}</td>
+                                                        <td className="px-3 py-2">{weekRow.joined}</td>
+                                                        <td className="px-3 py-2">{weekRow.connectedApplicantRate}</td>
+                                                        <td className="px-3 py-2">{weekRow.interviewScheduledRate}</td>
+                                                        <td className="px-3 py-2">{weekRow.interviewConductedRate}</td>
+                                                        <td className="px-3 py-2">{weekRow.offerRate}</td>
+                                                        <td className="px-3 py-2">{weekRow.joinRate}</td>
+                                                        <td className="px-3 py-2">{weekRow.preInterviewDeclineRate}</td>
+                                                        <td className="px-3 py-2">{weekRow.offerDeclineRate}</td>
+                                                        <td className="px-3 py-2">{weekRow.validApplicantRate}</td>
+                                                    </tr>
+                                                ))}
+                                        </Fragment>
+                                    )
+                                })
                             )}
                         </tbody>
                     </table>
@@ -251,24 +354,32 @@ function SummaryCard({
     tone?: SummaryTone
 }) {
     const toneClasses: Record<SummaryTone, string> = {
-        default: "border-border/70 bg-muted/10 text-muted-foreground",
-        info: "border-primary/30 bg-primary/5 text-primary-foreground",
-        success: "border-emerald-300/40 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-300",
-        muted: "border-slate-300/40 bg-slate-50 dark:bg-slate-900/40 text-slate-700 dark:text-slate-300",
-        warning: "border-amber-300/40 bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-300",
+        default: "border-border bg-background",
+        info: "border-border bg-background",
+        success: "border-border bg-background",
+        muted: "border-border bg-muted/20",
+        warning: "border-border bg-background",
     }
 
     const valueClasses: Record<SummaryTone, string> = {
         default: "text-foreground",
-        info: "text-primary",
-        success: "text-emerald-700 dark:text-emerald-300",
-        muted: "text-slate-700 dark:text-slate-300",
-        warning: "text-amber-700 dark:text-amber-300",
+        info: "text-foreground",
+        success: "text-foreground",
+        muted: "text-muted-foreground",
+        warning: "text-foreground",
+    }
+
+    const labelClasses: Record<SummaryTone, string> = {
+        default: "text-muted-foreground",
+        info: "text-muted-foreground",
+        success: "text-muted-foreground",
+        muted: "text-muted-foreground",
+        warning: "text-muted-foreground",
     }
 
     return (
         <div className={`rounded-lg border ${toneClasses[tone]} px-3 py-2.5 h-full`}>
-            <p className="text-[11px] text-muted-foreground font-medium">{label}</p>
+            <p className={`text-[11px] font-semibold ${labelClasses[tone]}`}>{label}</p>
             <p className={`mt-1 text-base font-bold tracking-tight ${valueClasses[tone]}`}>{value}</p>
         </div>
     )

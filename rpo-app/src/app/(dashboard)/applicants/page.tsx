@@ -1,5 +1,5 @@
 import { getApplicants, getCompanies } from "@/lib/actions"
-import type { ApplicantFilters } from "@/lib/actions"
+import type { ApplicantFilters, ApplicantSortField, ApplicantSortOrder } from "@/lib/actions"
 import { getCompanySheetMap } from "@/lib/actions/sheets"
 import { getAllCompanyCaseOptions } from "@/lib/actions/caseOptions"
 import { Search } from "lucide-react"
@@ -23,6 +23,27 @@ type SearchParams = {
     offered?: string
     appliedDateFrom?: string
     appliedDateTo?: string
+    sortField?: string
+    sortOrder?: string
+}
+
+const APPLICANT_SORT_FIELDS: ApplicantSortField[] = [
+    "appliedAt",
+    "nextActionDate",
+    "connectedAt",
+    "primaryScheduledDate",
+    "secScheduledDate",
+    "joinedDate",
+]
+
+const APPLICANT_SORT_FIELD_SET = new Set<ApplicantSortField>(APPLICANT_SORT_FIELDS)
+
+function isApplicantSortField(value?: string): value is ApplicantSortField {
+    return !!value && APPLICANT_SORT_FIELD_SET.has(value as ApplicantSortField)
+}
+
+function isApplicantSortOrder(value?: string): value is ApplicantSortOrder {
+    return value === "asc" || value === "desc"
 }
 
 export default async function ApplicantsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
@@ -43,6 +64,8 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
     const searchKeyword = params.q?.trim() || ""
     const currentPage = Math.max(1, Number.parseInt(params.page || "1", 10) || 1)
     const pageSize = 50
+    const sortField: ApplicantSortField = isApplicantSortField(params.sortField) ? params.sortField : "appliedAt"
+    const sortOrder: ApplicantSortOrder = isApplicantSortOrder(params.sortOrder) ? params.sortOrder : "desc"
 
     const filters: ApplicantFilters = {
         companyId: singleSelectedCompanyId,
@@ -55,6 +78,8 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
         offered: params.offered === "true" || params.offered === "false" ? params.offered : undefined,
         appliedDateFrom: params.appliedDateFrom || undefined,
         appliedDateTo: params.appliedDateTo || undefined,
+        sortField,
+        sortOrder,
     }
 
     const [
@@ -71,8 +96,7 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
     const totalFrom = total === 0 ? 0 : ((safeCurrentPage - 1) * pageSize) + 1
     const totalTo = Math.min(safeCurrentPage * pageSize, total)
     const companyIdsParamValue = selectedCompanyIds.join(",")
-    const buildPageUrl = (nextPage: number) => {
-        const query = new URLSearchParams()
+    const appendCommonQuery = (query: URLSearchParams) => {
         if (searchKeyword) query.set("q", searchKeyword)
         if (companyIdsParamValue) query.set("companyIds", companyIdsParamValue)
         if (params.assigneeName) query.set("assigneeName", params.assigneeName)
@@ -82,21 +106,34 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
         if (params.offered) query.set("offered", params.offered)
         if (params.appliedDateFrom) query.set("appliedDateFrom", params.appliedDateFrom)
         if (params.appliedDateTo) query.set("appliedDateTo", params.appliedDateTo)
+        query.set("sortField", sortField)
+        query.set("sortOrder", sortOrder)
+    }
+    const buildPageUrl = (nextPage: number) => {
+        const query = new URLSearchParams()
+        appendCommonQuery(query)
         if (nextPage > 1) query.set("page", String(nextPage))
         return `/applicants${query.toString() ? `?${query.toString()}` : ""}`
+    }
+    const buildSortUrl = (targetField: ApplicantSortField) => {
+        const query = new URLSearchParams()
+        appendCommonQuery(query)
+        query.delete("page")
+        const nextSortOrder: ApplicantSortOrder = sortField === targetField
+            ? (sortOrder === "asc" ? "desc" : "asc")
+            : "desc"
+        query.set("sortField", targetField)
+        query.set("sortOrder", nextSortOrder)
+        return `/applicants${query.toString() ? `?${query.toString()}` : ""}`
+    }
+    const sortIndicator = (targetField: ApplicantSortField) => {
+        if (sortField !== targetField) return "↕"
+        return sortOrder === "asc" ? "↑" : "↓"
     }
     const prevPage = safeCurrentPage > 1 ? safeCurrentPage - 1 : null
     const nextPage = safeCurrentPage < totalPages ? safeCurrentPage + 1 : null
     const exportQuery = new URLSearchParams()
-    if (searchKeyword) exportQuery.set("q", searchKeyword)
-    if (companyIdsParamValue) exportQuery.set("companyIds", companyIdsParamValue)
-    if (params.assigneeName) exportQuery.set("assigneeName", params.assigneeName)
-    if (params.responseStatus) exportQuery.set("responseStatus", params.responseStatus)
-    if (params.isValidApplicant) exportQuery.set("isValidApplicant", params.isValidApplicant)
-    if (params.gender) exportQuery.set("gender", params.gender)
-    if (params.offered) exportQuery.set("offered", params.offered)
-    if (params.appliedDateFrom) exportQuery.set("appliedDateFrom", params.appliedDateFrom)
-    if (params.appliedDateTo) exportQuery.set("appliedDateTo", params.appliedDateTo)
+    appendCommonQuery(exportQuery)
     const exportHref = `/api/applicants/csv${exportQuery.toString() ? `?${exportQuery.toString()}` : ""}`
 
     const filterCompanyName = singleSelectedCompanyId
@@ -153,6 +190,8 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
                             {params.offered ? <input type="hidden" name="offered" value={params.offered} /> : null}
                             {params.appliedDateFrom ? <input type="hidden" name="appliedDateFrom" value={params.appliedDateFrom} /> : null}
                             {params.appliedDateTo ? <input type="hidden" name="appliedDateTo" value={params.appliedDateTo} /> : null}
+                            <input type="hidden" name="sortField" value={sortField} />
+                            <input type="hidden" name="sortOrder" value={sortOrder} />
                             <button type="submit" className="sr-only">検索</button>
                         </form>
                         <CompanyFilterSelect
@@ -180,11 +219,16 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
                     <table className="w-full text-sm text-left whitespace-nowrap border-collapse">
                         <thead className="sticky top-0 z-20 text-[11px] text-muted-foreground uppercase tracking-wider bg-muted/50 backdrop-blur-sm border-b border-border">
                             <tr>
-                                {/* A-D: Sticky columns */}
-                                <th className="px-4 py-2.5 font-semibold sticky left-0 z-30 bg-muted/80 backdrop-blur-sm min-w-[110px]">応募日</th>
-                                <th className="px-4 py-2.5 font-semibold sticky left-[110px] z-30 bg-muted/80 backdrop-blur-sm min-w-[140px]">会社名</th>
-                                <th className="px-4 py-2.5 font-semibold sticky left-[250px] z-30 bg-muted/80 backdrop-blur-sm min-w-[140px]">案件名</th>
-                                <th className="px-4 py-2.5 font-semibold sticky left-[390px] z-30 bg-muted/80 backdrop-blur-sm min-w-[180px] border-r border-border/40">氏名</th>
+                                {/* A: Sticky column */}
+                                <th className="px-4 py-2.5 font-semibold sticky left-0 z-30 bg-muted/80 backdrop-blur-sm min-w-[110px]">
+                                    <Link href={buildSortUrl("appliedAt")} className="inline-flex items-center gap-1 hover:text-foreground transition-colors duration-150">
+                                        <span>応募日</span>
+                                        <span className="text-[10px]" aria-hidden>{sortIndicator("appliedAt")}</span>
+                                    </Link>
+                                </th>
+                                <th className="px-4 py-2.5 font-semibold min-w-[140px]">会社名</th>
+                                <th className="px-4 py-2.5 font-semibold min-w-[140px]">案件名</th>
+                                <th className="px-4 py-2.5 font-semibold sticky left-[110px] z-30 bg-muted/80 backdrop-blur-sm min-w-[180px] border-r border-border/40">氏名</th>
                                 {/* E-W: Scrollable columns */}
                                 <th className="px-4 py-2.5 font-semibold">mail</th>
                                 <th className="px-4 py-2.5 font-semibold">応募職種名</th>
@@ -197,14 +241,40 @@ export default async function ApplicantsPage({ searchParams }: { searchParams: P
                                 <th className="px-4 py-2.5 font-semibold">有効応募</th>
                                 <th className="px-4 py-2.5 font-semibold">対応状況</th>
                                 <th className="px-4 py-2.5 font-semibold">備考</th>
-                                <th className="px-4 py-2.5 font-semibold">次回アクション日</th>
-                                <th className="px-4 py-2.5 font-semibold">通電日</th>
-                                <th className="px-4 py-2.5 font-semibold">面接予定日</th>
+                                <th className="px-4 py-2.5 font-semibold">
+                                    <Link href={buildSortUrl("nextActionDate")} className="inline-flex items-center gap-1 hover:text-foreground transition-colors duration-150">
+                                        <span>次回アクション日</span>
+                                        <span className="text-[10px]" aria-hidden>{sortIndicator("nextActionDate")}</span>
+                                    </Link>
+                                </th>
+                                <th className="px-4 py-2.5 font-semibold">アクション内容</th>
+                                <th className="px-4 py-2.5 font-semibold">
+                                    <Link href={buildSortUrl("connectedAt")} className="inline-flex items-center gap-1 hover:text-foreground transition-colors duration-150">
+                                        <span>通電日</span>
+                                        <span className="text-[10px]" aria-hidden>{sortIndicator("connectedAt")}</span>
+                                    </Link>
+                                </th>
+                                <th className="px-4 py-2.5 font-semibold">
+                                    <Link href={buildSortUrl("primaryScheduledDate")} className="inline-flex items-center gap-1 hover:text-foreground transition-colors duration-150">
+                                        <span>面接予定日</span>
+                                        <span className="text-[10px]" aria-hidden>{sortIndicator("primaryScheduledDate")}</span>
+                                    </Link>
+                                </th>
                                 <th className="px-4 py-2.5 font-semibold">実施可否</th>
-                                <th className="px-4 py-2.5 font-semibold">二次/最終面接予定日</th>
+                                <th className="px-4 py-2.5 font-semibold">
+                                    <Link href={buildSortUrl("secScheduledDate")} className="inline-flex items-center gap-1 hover:text-foreground transition-colors duration-150">
+                                        <span>二次/最終面接予定日</span>
+                                        <span className="text-[10px]" aria-hidden>{sortIndicator("secScheduledDate")}</span>
+                                    </Link>
+                                </th>
                                 <th className="px-4 py-2.5 font-semibold">二次/最終実施可否</th>
                                 <th className="px-4 py-2.5 font-semibold">内定可否</th>
-                                <th className="px-4 py-2.5 font-semibold">入社日</th>
+                                <th className="px-4 py-2.5 font-semibold">
+                                    <Link href={buildSortUrl("joinedDate")} className="inline-flex items-center gap-1 hover:text-foreground transition-colors duration-150">
+                                        <span>入社日</span>
+                                        <span className="text-[10px]" aria-hidden>{sortIndicator("joinedDate")}</span>
+                                    </Link>
+                                </th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-border/40">

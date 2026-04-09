@@ -18,6 +18,7 @@ const PRIMARY_INTERVIEW_REJECTED_STATUSES = ["面接不採用", "面接不採用
 const OFFERED_STATUSES = ["内定", "内定数"] as const
 const OFFER_DECLINED_STATUSES = ["内定後辞退", "入社前辞退"] as const
 const JOINED_STATUSES = ["入社"] as const
+const ACTIVE_SUPPORT_STATUS = "支援中" as const
 
 const UNIQUE_APPLICANT_KEY_EXPR = sql<string>`
     coalesce(
@@ -113,19 +114,106 @@ export type CompanyMonthlyTotalRow = {
     offerDeclineRate: string
 }
 
+export type CompanyWeeklyTotalRow = {
+    month: number
+    week: number
+    totalApplicants: number
+    uniqueApplicants: number
+    validApplicants: number
+    validApplicantRate: string
+    connectedApplicantCount: number
+    notConnectedCount: number
+    phoneAppointmentCount: number
+    interviewScheduledCount: number
+    interviewConductedCount: number
+    offered: number
+    offerPendingCount: number
+    joined: number
+    preInterviewDeclinedCount: number
+    offerDeclined: number
+    connectedApplicantRate: string
+    interviewScheduledRate: string
+    interviewConductedRate: string
+    offerRate: string
+    joinRate: string
+    preInterviewDeclineRate: string
+    offerDeclineRate: string
+}
+
+type CompanyMonthlyFilterOptions = {
+    month?: number
+    week?: number
+    periodStartAt?: number
+    periodEndAt?: number
+}
+
 type BaseDateFilter = {
     year: number | undefined
     month: number | undefined
+    week: number | undefined
+    periodStartAt?: number
+    periodEndAt?: number
 }
 
-function normalizeDateFilter(year: number | undefined, month: number | undefined): BaseDateFilter {
+function normalizeDateFilter(
+    year: number | undefined,
+    month: number | undefined,
+    week: number | undefined,
+    periodStartAt?: number,
+    periodEndAt?: number,
+): BaseDateFilter {
     const yearValue = year && Number.isFinite(year) ? Math.floor(year) : undefined
     const monthValue = month && Number.isFinite(month) ? Math.floor(month) : undefined
+    const weekValue = week && Number.isFinite(week) ? Math.floor(week) : undefined
     const safeMonth = monthValue && monthValue >= 1 && monthValue <= 12 ? monthValue : undefined
-    return { year: yearValue, month: safeMonth }
+    const safeWeek = weekValue && weekValue >= 1 && weekValue <= 5 ? weekValue : undefined
+    const safePeriodStartAt = typeof periodStartAt === "number" && Number.isFinite(periodStartAt)
+        ? Math.floor(periodStartAt)
+        : undefined
+    const safePeriodEndAt = typeof periodEndAt === "number" && Number.isFinite(periodEndAt)
+        ? Math.floor(periodEndAt)
+        : undefined
+
+    if (typeof safePeriodStartAt === "number" || typeof safePeriodEndAt === "number") {
+        return {
+            year: undefined,
+            month: undefined,
+            week: undefined,
+            periodStartAt: safePeriodStartAt,
+            periodEndAt: safePeriodEndAt,
+        }
+    }
+
+    return { year: yearValue, month: safeMonth, week: safeWeek }
 }
 
-function buildAppliedTimeFilter({ year, month }: BaseDateFilter) {
+function buildAppliedTimeFilter({ year, month, week, periodStartAt, periodEndAt }: BaseDateFilter) {
+    if (typeof periodStartAt === "number" && typeof periodEndAt === "number") {
+        return sql`${schema.applicants.appliedAt} >= ${periodStartAt} AND ${schema.applicants.appliedAt} < ${periodEndAt}`
+    }
+
+    if (typeof periodStartAt === "number") {
+        return sql`${schema.applicants.appliedAt} >= ${periodStartAt}`
+    }
+
+    if (typeof periodEndAt === "number") {
+        return sql`${schema.applicants.appliedAt} < ${periodEndAt}`
+    }
+
+    if (typeof year === "number" && typeof month === "number" && typeof week === "number") {
+        const weekStartDay = 1 + ((week - 1) * 7)
+        const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
+        if (weekStartDay > daysInMonth) {
+            return sql`0=1`
+        }
+
+        const startAt = Math.floor(Date.UTC(year, month - 1, weekStartDay, 0, 0, 0) / 1000)
+        const endAt = week === 5
+            ? Math.floor(Date.UTC(year, month, 1, 0, 0, 0) / 1000)
+            : Math.floor(Date.UTC(year, month - 1, Math.min(weekStartDay + 7, daysInMonth + 1), 0, 0, 0) / 1000)
+        return sql`${schema.applicants.appliedAt} >= ${startAt} AND ${schema.applicants.appliedAt} < ${endAt}`
+    }
+
     if (typeof year === "number" && typeof month === "number") {
         const startAt = Math.floor(Date.UTC(year, month - 1, 1, 0, 0, 0) / 1000)
         const endAt = Math.floor(Date.UTC(year, month, 1, 0, 0, 0) / 1000)
@@ -140,6 +228,15 @@ function buildAppliedTimeFilter({ year, month }: BaseDateFilter) {
 
     if (typeof month === "number") {
         const monthText = String(month).padStart(2, "0")
+        if (typeof week === "number") {
+            const weekStartDay = 1 + ((week - 1) * 7)
+            const weekEndDayExclusive = week === 5 ? 32 : weekStartDay + 7
+            return sql`
+                strftime('%m', ${schema.applicants.appliedAt}, 'unixepoch') = ${monthText}
+                AND cast(strftime('%d', ${schema.applicants.appliedAt}, 'unixepoch') as integer) >= ${weekStartDay}
+                AND cast(strftime('%d', ${schema.applicants.appliedAt}, 'unixepoch') as integer) < ${weekEndDayExclusive}
+            `
+        }
         return sql`strftime('%m', ${schema.applicants.appliedAt}, 'unixepoch') = ${monthText}`
     }
 
@@ -162,32 +259,31 @@ export async function getCompanyYields(
     options?: {
         companyId?: string
         companyIds?: string[]
+        week?: number
+        periodStartAt?: number
+        periodEndAt?: number
     },
 ) {
     // NOTE: `event` filtering is reserved for future support.
     void dateType
 
-    const filter = normalizeDateFilter(year, month)
+    const filter = normalizeDateFilter(year, month, options?.week, options?.periodStartAt, options?.periodEndAt)
     const timeFilter = buildAppliedTimeFilter(filter)
     const targetCompanyId = options?.companyId?.trim()
     const targetCompanyIds = options?.companyIds?.length ? options.companyIds : undefined
 
+    const activeCompanyFilter = eq(schema.companies.supportStatus, ACTIVE_SUPPORT_STATUS)
     const companyWhereClause = targetCompanyId
-        ? eq(schema.companies.id, targetCompanyId)
+        ? and(activeCompanyFilter, eq(schema.companies.id, targetCompanyId))
         : targetCompanyIds
-            ? inArray(schema.companies.id, targetCompanyIds)
-            : undefined
+            ? and(activeCompanyFilter, inArray(schema.companies.id, targetCompanyIds))
+            : activeCompanyFilter
 
-    const applicantsJoinCondition = companyWhereClause
-        ? and(
-            eq(schema.companies.id, schema.applicants.companyId),
-            timeFilter,
-            companyWhereClause,
-        )
-        : and(
-            eq(schema.companies.id, schema.applicants.companyId),
-            timeFilter,
-        )
+    const applicantsJoinCondition = and(
+        eq(schema.companies.id, schema.applicants.companyId),
+        timeFilter,
+        companyWhereClause,
+    )
 
     const [results, callMetrics] = await Promise.all([
         db
@@ -453,9 +549,18 @@ export async function getCaseTargetMetrics(
     }
 }
 
-export async function getCompanyMonthlyTotals(year: number | undefined) {
-    const normalizedYear = normalizeDateFilter(year, undefined).year
-    const filter = buildAppliedTimeFilter({ year: normalizedYear, month: undefined })
+export async function getCompanyMonthlyTotals(
+    year: number | undefined,
+    options?: CompanyMonthlyFilterOptions,
+) {
+    const normalizedFilter = normalizeDateFilter(
+        year,
+        options?.month,
+        options?.week,
+        options?.periodStartAt,
+        options?.periodEndAt,
+    )
+    const filter = buildAppliedTimeFilter(normalizedFilter)
     const monthExpr = sql<string>`strftime('%m', ${schema.applicants.appliedAt}, 'unixepoch')`
 
     const [baseRows, callMetricRows] = await Promise.all([
@@ -546,7 +651,19 @@ export async function getCompanyMonthlyTotals(year: number | undefined) {
         ]),
     )
 
-    const months = Array.from({ length: 12 }, (_, index) => index + 1)
+    const hasCustomRange =
+        typeof normalizedFilter.periodStartAt === "number" ||
+        typeof normalizedFilter.periodEndAt === "number"
+    const months = typeof normalizedFilter.month === "number"
+        ? [normalizedFilter.month]
+        : hasCustomRange
+            ? Array.from(
+                new Set([
+                    ...baseMap.keys(),
+                    ...callMetricMap.keys(),
+                ]),
+            ).sort((left, right) => left - right)
+            : Array.from({ length: 12 }, (_, index) => index + 1)
     return months.map((month) => {
         const base = baseMap.get(month) || {
             totalApplicants: 0,
@@ -594,6 +711,160 @@ export async function getCompanyMonthlyTotals(year: number | undefined) {
     }) as CompanyMonthlyTotalRow[]
 }
 
+export async function getCompanyMonthlyWeeklyTotals(
+    year: number | undefined,
+    options?: CompanyMonthlyFilterOptions,
+): Promise<CompanyWeeklyTotalRow[]> {
+    const normalizedFilter = normalizeDateFilter(
+        year,
+        options?.month,
+        options?.week,
+        options?.periodStartAt,
+        options?.periodEndAt,
+    )
+    const filter = buildAppliedTimeFilter(normalizedFilter)
+    const monthExpr = sql<string>`strftime('%m', ${schema.applicants.appliedAt}, 'unixepoch')`
+    const weekExpr = sql<string>`cast(((cast(strftime('%d', ${schema.applicants.appliedAt}, 'unixepoch') as integer) - 1) / 7) + 1 as integer)`
+
+    const [baseRows, callMetricRows] = await Promise.all([
+        db
+            .select({
+                month: monthExpr,
+                week: weekExpr,
+                totalApplicants: sql<number>`count(${schema.applicants.id})`,
+                uniqueApplicants: sql<number>`count(${schema.applicants.id}) - sum(case when ${statusIn(DUPLICATE_APPLICATION_STATUSES)} then 1 else 0 end)`,
+                validApplicants: sql<number>`sum(coalesce(${schema.applicants.isValidApplicant},0))`,
+                phoneAppointmentCount: sql<number>`sum(case when ${statusIn(PHONE_APPOINTMENT_FIXED_STATUSES)} then 1 else 0 end)`,
+                interviewScheduledCount: sql<number>`sum(case when ${schema.applicants.primaryScheduledDate} is not null then 1 else 0 end)`,
+                interviewConductedCount: sql<number>`sum(case when coalesce(${schema.applicants.primaryConducted},0) = 1 then 1 else 0 end)`,
+                offered: sql<number>`sum(coalesce(${schema.applicants.offered}, 0))`,
+                joined: sql<number>`sum(case when ${statusIn(JOINED_STATUSES)} then 1 else 0 end)`,
+                preInterviewDeclinedCount: sql<number>`sum(case when ${statusIn(PRIMARY_INTERVIEW_DECLINED_BEFORE_STATUSES)} then 1 else 0 end)`,
+                offerDeclined: sql<number>`sum(case when ${statusIn(OFFER_DECLINED_STATUSES)} then 1 else 0 end)`,
+                interviewDateSetCount: sql<number>`sum(case when ${schema.applicants.primaryScheduledDate} is not null then 1 else 0 end)`,
+            })
+            .from(schema.applicants)
+            .where(filter)
+            .groupBy(monthExpr, weekExpr)
+            .orderBy(monthExpr, weekExpr),
+        db
+            .select({
+                month: monthExpr,
+                week: weekExpr,
+                connectedApplicantCount: sql<number>`
+                    sum(
+                        case
+                            when ${schema.applicants.connectedAt} is not null
+                            then 1
+                            else 0
+                        end
+                    )
+                `,
+                connectedValidApplicantCount: sql<number>`
+                    sum(
+                        case
+                            when ${schema.applicants.connectedAt} is not null
+                                and coalesce(${schema.applicants.isValidApplicant}, 0) = 1
+                            then 1
+                            else 0
+                        end
+                    )
+                `,
+                notConnectedCount: sql<number>`
+                    sum(
+                        case
+                            when ${statusIn(NOT_CONNECTED_STATUSES)}
+                            then 1
+                            else 0
+                        end
+                    )
+                `,
+            })
+            .from(schema.applicants)
+            .where(filter)
+            .groupBy(monthExpr, weekExpr)
+            .orderBy(monthExpr, weekExpr),
+    ])
+
+    const baseMap = new Map(
+        baseRows.map((row) => {
+            const month = Number.parseInt(String(row.month), 10)
+            const week = Number.parseInt(String(row.week), 10)
+            return [
+                `${month}-${week}`,
+                {
+                    month,
+                    week,
+                    totalApplicants: Number(row.totalApplicants || 0),
+                    uniqueApplicants: Number(row.uniqueApplicants || 0),
+                    validApplicants: Number(row.validApplicants || 0),
+                    phoneAppointmentCount: Number(row.phoneAppointmentCount || 0),
+                    interviewScheduledCount: Number(row.interviewScheduledCount || 0),
+                    interviewConductedCount: Number(row.interviewConductedCount || 0),
+                    offered: Number(row.offered || 0),
+                    joined: Number(row.joined || 0),
+                    preInterviewDeclinedCount: Number(row.preInterviewDeclinedCount || 0),
+                    offerDeclined: Number(row.offerDeclined || 0),
+                    interviewDateSetCount: Number(row.interviewDateSetCount || 0),
+                },
+            ]
+        }),
+    )
+
+    const callMetricMap = new Map(
+        callMetricRows.map((row) => {
+            const month = Number.parseInt(String(row.month), 10)
+            const week = Number.parseInt(String(row.week), 10)
+            return [
+                `${month}-${week}`,
+                {
+                    connectedApplicantCount: Number(row.connectedApplicantCount || 0),
+                    connectedValidApplicantCount: Number(row.connectedValidApplicantCount || 0),
+                    notConnectedCount: Number(row.notConnectedCount || 0),
+                },
+            ]
+        }),
+    )
+
+    return Array.from(baseMap.values())
+        .filter((base) => Number.isFinite(base.month) && Number.isFinite(base.week))
+        .sort((left, right) => (left.month - right.month) || (left.week - right.week))
+        .map((base) => {
+            const key = `${base.month}-${base.week}`
+            const callMetric = callMetricMap.get(key) || {
+                connectedApplicantCount: 0,
+                connectedValidApplicantCount: 0,
+                notConnectedCount: 0,
+            }
+
+            return {
+                month: base.month,
+                week: base.week,
+                totalApplicants: base.totalApplicants,
+                uniqueApplicants: base.uniqueApplicants,
+                validApplicants: base.validApplicants,
+                validApplicantRate: formatRate(base.validApplicants, base.uniqueApplicants),
+                connectedApplicantCount: callMetric.connectedApplicantCount,
+                notConnectedCount: callMetric.notConnectedCount,
+                phoneAppointmentCount: base.phoneAppointmentCount,
+                interviewScheduledCount: base.interviewScheduledCount,
+                interviewConductedCount: base.interviewConductedCount,
+                offered: base.offered,
+                offerPendingCount: Math.max(0, base.offered - (base.offerDeclined + base.joined)),
+                joined: base.joined,
+                preInterviewDeclinedCount: base.preInterviewDeclinedCount,
+                offerDeclined: base.offerDeclined,
+                connectedApplicantRate: formatRate(callMetric.connectedApplicantCount, base.validApplicants),
+                interviewScheduledRate: formatRate(base.interviewScheduledCount, base.validApplicants),
+                interviewConductedRate: formatRate(base.interviewConductedCount, base.validApplicants),
+                offerRate: formatRate(base.offered, base.validApplicants),
+                joinRate: formatRate(base.joined, base.validApplicants),
+                preInterviewDeclineRate: formatRate(base.preInterviewDeclinedCount, base.interviewDateSetCount),
+                offerDeclineRate: formatRate(base.offerDeclined, base.offered),
+            }
+        })
+}
+
 export type CaseYieldRow = CompanyYieldRow & {
     caseName: string
 }
@@ -605,31 +876,30 @@ export async function getCompanyCaseYields(
     options?: {
         companyId?: string
         companyIds?: string[]
+        week?: number
+        periodStartAt?: number
+        periodEndAt?: number
     },
 ): Promise<CaseYieldRow[]> {
     void dateType
 
-    const filter = normalizeDateFilter(year, month)
+    const filter = normalizeDateFilter(year, month, options?.week, options?.periodStartAt, options?.periodEndAt)
     const timeFilter = buildAppliedTimeFilter(filter)
     const targetCompanyId = options?.companyId?.trim()
     const targetCompanyIds = options?.companyIds?.length ? options.companyIds : undefined
 
+    const activeCompanyFilter = eq(schema.companies.supportStatus, ACTIVE_SUPPORT_STATUS)
     const companyWhereClause = targetCompanyId
-        ? eq(schema.companies.id, targetCompanyId)
+        ? and(activeCompanyFilter, eq(schema.companies.id, targetCompanyId))
         : targetCompanyIds
-            ? inArray(schema.companies.id, targetCompanyIds)
-            : undefined
+            ? and(activeCompanyFilter, inArray(schema.companies.id, targetCompanyIds))
+            : activeCompanyFilter
 
-    const applicantsJoinCondition = companyWhereClause
-        ? and(
-            eq(schema.companies.id, schema.applicants.companyId),
-            timeFilter,
-            companyWhereClause,
-        )
-        : and(
-            eq(schema.companies.id, schema.applicants.companyId),
-            timeFilter,
-        )
+    const applicantsJoinCondition = and(
+        eq(schema.companies.id, schema.applicants.companyId),
+        timeFilter,
+        companyWhereClause,
+    )
 
     const caseNameExpr = sql<string>`coalesce(nullif(trim(${schema.applicants.caseName}), ''), '(案件名なし)')`
 

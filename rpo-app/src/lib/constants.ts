@@ -1,4 +1,4 @@
-export const ASSIGNEE_OPTIONS = ["佐藤", "迫", "照井"] as const
+export const ASSIGNEE_OPTIONS = ["佐藤", "迫", "照井", "熊谷", "齊藤", "石川"] as const
 
 export const STATUS_OPTIONS = [
     "",

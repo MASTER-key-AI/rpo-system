@@ -1,5 +1,6 @@
 import { auth } from "@/auth"
 import { getCompanyYields } from "@/lib/actions/yields"
+import { getCompanyYieldCustomDateRange, getCompanyYieldPeriodRange, parseCompanyYieldPeriod } from "@/lib/company-yield-period"
 import { NextRequest, NextResponse } from "next/server"
 
 export const runtime = "nodejs"
@@ -64,11 +65,22 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = request.nextUrl
-    const year = parseYear(searchParams.get("year"))
-    const month = parseMonth(searchParams.get("month"))
-    const companyId = searchParams.get("companyId")?.trim() || undefined
-    const dateType = parseDateType(searchParams.get("dateType"))
-    const rows = await getCompanyYields(year, month, dateType, { companyId })
+    const getLast = (key: string) => {
+        const values = searchParams.getAll(key)
+        return values.length > 0 ? values[values.length - 1] : null
+    }
+
+    const year = parseYear(getLast("year"))
+    const month = parseMonth(getLast("month"))
+    const week = parseWeek(getLast("week"))
+    const period = parseCompanyYieldPeriod(getLast("period"))
+    const customDateRange = getCompanyYieldCustomDateRange(getLast("startDate"), getLast("endDate"))
+    const presetDateRange = getCompanyYieldPeriodRange(period)
+    const periodStartAt = customDateRange.hasCustomRange ? customDateRange.startAt : presetDateRange.startAt
+    const periodEndAt = customDateRange.hasCustomRange ? customDateRange.endAt : presetDateRange.endAt
+    const companyId = getLast("companyId")?.trim() || undefined
+    const dateType = parseDateType(getLast("dateType"))
+    const rows = await getCompanyYields(year, month, dateType, { companyId, week, periodStartAt, periodEndAt })
 
     const header = CSV_COLUMNS.map((column) => escapeCsv(column.label)).join(",")
     const body = rows
@@ -76,7 +88,7 @@ export async function GET(request: NextRequest) {
         .join("\n")
     const csv = `\uFEFF${header}\n${body}\n`
 
-    const filename = buildFilename(year, month)
+    const filename = buildFilename(period, year, month, week, customDateRange.startDate, customDateRange.endDate)
 
     return new NextResponse(csv, {
         headers: {
@@ -101,6 +113,13 @@ function parseMonth(raw: string | null): number | undefined {
     return parsed
 }
 
+function parseWeek(raw: string | null): number | undefined {
+    if (!raw) return undefined
+    const parsed = Number.parseInt(raw, 10)
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 5) return undefined
+    return parsed
+}
+
 function parseDateType(raw: string | null): DateType {
     return raw === "event" ? "event" : "applied"
 }
@@ -112,8 +131,15 @@ function escapeCsv(value: string) {
     return value
 }
 
-function buildFilename(year?: number, month?: number) {
+function buildFilename(period: string, year?: number, month?: number, week?: number, startDate?: string, endDate?: string) {
+    if (startDate || endDate) {
+        return `company-yields_${startDate ?? "start"}_${endDate ?? "end"}.csv`
+    }
+    if (period !== "all") {
+        return `company-yields_${period}.csv`
+    }
     const yyyy = year ? String(year) : "all"
     const mm = month ? String(month).padStart(2, "0") : "all"
-    return `company-yields_${yyyy}-${mm}.csv`
+    const ww = week ? `-w${String(week)}` : ""
+    return `company-yields_${yyyy}-${mm}${ww}.csv`
 }

@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { Fragment, useMemo, useState } from "react"
 import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react"
 import type { CaseYieldRow } from "@/lib/actions/yields"
 
@@ -52,13 +52,6 @@ type CompanyYieldRow = {
     offerDeclineRate: string
 }
 
-
-type CompanyGroupWithMembers = {
-    id: string
-    name: string
-    memberCompanyIds: string[]
-}
-
 type SheetEntry = {
     spreadsheetId: string
     gid: number
@@ -69,15 +62,15 @@ type SheetEntry = {
 type Props = {
     yields: CompanyYieldRow[]
     companyId?: string
-    groups?: CompanyGroupWithMembers[]
     sheetMap?: Record<string, SheetEntry>
     caseYields?: CaseYieldRow[]
 }
 
 type DisplayRow =
-    | { type: "summary", row: CompanyYieldRow }
-    | { type: "group-parent", groupId: string, row: CompanyYieldRow }
-    | { type: "normal", row: CompanyYieldRow }
+    | { key: string; type: "summary"; row: CompanyYieldRow }
+    | { key: string; type: "company-parent"; groupKey: string; row: CompanyYieldRow }
+    | { key: string; type: "company-child"; groupKey: string; branchLabel: string; row: CompanyYieldRow }
+    | { key: string; type: "normal"; row: CompanyYieldRow }
 
 type Column = {
     key: keyof CompanyYieldRow
@@ -165,8 +158,9 @@ const NUMERIC_KEYS: Array<keyof CompanyYieldRow> = [
     "joined",
 ]
 
-export default function CompaniesYieldTableClient({ yields, companyId, groups = [], sheetMap = {}, caseYields = [] }: Props) {
+export default function CompaniesYieldTableClient({ yields, companyId, sheetMap = {}, caseYields = [] }: Props) {
     const [expandedCompanyIds, setExpandedCompanyIds] = useState<Set<string>>(new Set())
+    const [expandedGroupKeys, setExpandedGroupKeys] = useState<Set<string>>(new Set())
 
     const caseYieldsByCompany = useMemo(() => {
         const map = new Map<string, CaseYieldRow[]>()
@@ -190,42 +184,93 @@ export default function CompaniesYieldTableClient({ yields, companyId, groups = 
         })
     }
 
+    const toggleCompanyGroup = (groupKey: string) => {
+        setExpandedGroupKeys((prev) => {
+            const next = new Set(prev)
+            if (next.has(groupKey)) {
+                next.delete(groupKey)
+            } else {
+                next.add(groupKey)
+            }
+            return next
+        })
+    }
+
     const displayRows = useMemo<DisplayRow[]>(() => {
-        if (companyId) {
-            return yields
-                .slice()
-                .sort((a, b) => a.companyName.localeCompare(b.companyName, "ja"))
-                .map((row): DisplayRow => ({ type: "normal", row }))
-        }
-
-        const summary = createSummaryRow(yields, `全企業累計（${yields.length}社）`)
-        const rows: DisplayRow[] = [{ type: "summary", row: summary }]
-
-        // グループに属する企業IDを収集
-        const groupedCompanyIds = new Set<string>()
-        for (const group of groups) {
-            for (const cid of group.memberCompanyIds) {
-                groupedCompanyIds.add(cid)
-            }
-        }
-
-        // 各グループの集約行を生成
-        for (const group of groups) {
-            const memberYields = yields.filter((row) => group.memberCompanyIds.includes(row.companyId))
-            if (memberYields.length > 0) {
-                const groupSummary = createSummaryRow(memberYields, `${group.name} (${memberYields.length}社)`)
-                rows.push({ type: "group-parent", groupId: group.id, row: groupSummary })
-            }
-        }
-
-        // グループに属さない企業を通常行として表示
-        const ungroupedRows = yields
-            .filter((row) => !groupedCompanyIds.has(row.companyId))
+        const sortedYields = yields
+            .slice()
             .sort((a, b) => a.companyName.localeCompare(b.companyName, "ja"))
-        rows.push(...ungroupedRows.map((row): DisplayRow => ({ type: "normal", row })))
+
+        if (companyId) {
+            return sortedYields.map((row): DisplayRow => ({
+                key: `company-${row.companyId}`,
+                type: "normal",
+                row,
+            }))
+        }
+
+        const rows: DisplayRow[] = [
+            {
+                key: "summary",
+                type: "summary",
+                row: createSummaryRow(sortedYields, `全企業累計（${sortedYields.length}社）`),
+            },
+        ]
+
+        const groupedByBase = new Map<string, Array<{ row: CompanyYieldRow; branchName: string | null }>>()
+        for (const row of sortedYields) {
+            const { baseName, branchName } = splitCompanyName(row.companyName)
+            const existing = groupedByBase.get(baseName) ?? []
+            existing.push({ row, branchName })
+            groupedByBase.set(baseName, existing)
+        }
+
+        const sortedGroupKeys = Array.from(groupedByBase.keys()).sort((a, b) => a.localeCompare(b, "ja"))
+        for (const groupKey of sortedGroupKeys) {
+            const members = groupedByBase.get(groupKey) ?? []
+            if (members.length <= 1) {
+                const single = members[0]
+                if (single) {
+                    rows.push({
+                        key: `company-${single.row.companyId}`,
+                        type: "normal",
+                        row: single.row,
+                    })
+                }
+                continue
+            }
+
+            const parentSummary = createSummaryRow(
+                members.map((member) => member.row),
+                `${groupKey}（${members.length}拠点）`,
+            )
+            rows.push({
+                key: `parent-${groupKey}`,
+                type: "company-parent",
+                groupKey,
+                row: parentSummary,
+            })
+
+            if (!expandedGroupKeys.has(groupKey)) {
+                continue
+            }
+
+            const sortedMembers = members
+                .slice()
+                .sort((a, b) => a.row.companyName.localeCompare(b.row.companyName, "ja"))
+            for (const member of sortedMembers) {
+                rows.push({
+                    key: `child-${groupKey}-${member.row.companyId}`,
+                    type: "company-child",
+                    groupKey,
+                    branchLabel: member.branchName || member.row.companyName,
+                    row: member.row,
+                })
+            }
+        }
 
         return rows
-    }, [yields, companyId, groups])
+    }, [yields, companyId, expandedGroupKeys])
 
     if (displayRows.length === 0) {
         return (
@@ -241,7 +286,7 @@ export default function CompaniesYieldTableClient({ yields, companyId, groups = 
                 <table className="w-full whitespace-nowrap text-sm">
                     <thead className="sticky top-0 z-20 bg-muted/40 border-b border-border">
                         <tr>
-                            <th className="px-4 py-3 text-left sticky left-0 z-30 bg-muted/95 backdrop-blur min-w-[220px] border-r border-border/50">企業名 / 案件名</th>
+                            <th className="px-3 py-3 text-left sticky left-0 z-30 bg-muted/95 backdrop-blur min-w-[180px] max-w-[210px] border-r border-border/50 whitespace-normal break-words leading-snug">企業名 / 案件名</th>
                             {COLUMNS.map((column) => (
                                 <th key={column.key} className="px-3 py-3 text-center">
                                     {column.label}
@@ -254,29 +299,50 @@ export default function CompaniesYieldTableClient({ yields, companyId, groups = 
                             const baseClass =
                                 item.type === "summary"
                                     ? "bg-primary/5 font-semibold"
-                                    : item.type === "group-parent"
-                                        ? "bg-amber-50/60 font-semibold"
-                                        : "hover:bg-muted/30"
+                                    : item.type === "company-parent"
+                                        ? "bg-emerald-50/60 dark:bg-emerald-950/10 font-semibold"
+                                        : item.type === "company-child"
+                                            ? "bg-muted/15 hover:bg-muted/30"
+                                            : "hover:bg-muted/30"
 
-                            const hasCases = item.type === "normal" && (caseYieldsByCompany.get(item.row.companyId)?.length ?? 0) > 0
+                            const hasCases =
+                                (item.type === "normal" || item.type === "company-child") &&
+                                (caseYieldsByCompany.get(item.row.companyId)?.length ?? 0) > 0
                             const isExpanded = expandedCompanyIds.has(item.row.companyId)
                             const caseRows = hasCases ? (caseYieldsByCompany.get(item.row.companyId) ?? []) : []
+                            const stickyCellClass =
+                                item.type === "summary"
+                                    ? "bg-primary/5"
+                                    : item.type === "company-parent"
+                                        ? "bg-emerald-50/80 dark:bg-emerald-950/20"
+                                        : item.type === "company-child"
+                                            ? "bg-muted/20"
+                                            : "bg-background/95"
+                            const caseIndentClass = item.type === "company-child" ? "pl-12" : "pl-8"
 
                             return (
-                                <>
+                                <Fragment key={item.key}>
                                     <tr
-                                        key={`${item.type}-${item.row.companyId}-${item.row.companyName}`}
                                         className={`${baseClass} border-b border-border/50`}
                                     >
-                                        <td className="px-4 py-2 sticky left-0 z-10 bg-background/95 backdrop-blur min-w-[220px] border-r border-border/50">
-                                            {item.type === "group-parent" ? (
-                                                <Link href={`/companies/groups/${item.groupId}`} className="text-primary hover:underline">
-                                                    {item.row.companyName}
-                                                </Link>
+                                        <td className={`px-3 py-2 sticky left-0 z-10 backdrop-blur min-w-[180px] max-w-[210px] border-r border-border/50 whitespace-normal break-words ${stickyCellClass}`}>
+                                            {item.type === "company-parent" ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => toggleCompanyGroup(item.groupKey)}
+                                                    className="flex items-start gap-1.5 w-full text-left text-primary hover:underline cursor-pointer"
+                                                    title={expandedGroupKeys.has(item.groupKey) ? "支店一覧を折りたたむ" : "支店一覧を展開する"}
+                                                >
+                                                    {expandedGroupKeys.has(item.groupKey)
+                                                        ? <ChevronDown className="w-4 h-4" />
+                                                        : <ChevronRight className="w-4 h-4" />
+                                                    }
+                                                    <span className="whitespace-normal break-words leading-snug">{item.row.companyName}</span>
+                                                </button>
                                             ) : item.type === "summary" ? (
-                                                <span>{item.row.companyName}</span>
+                                                <span className="whitespace-normal break-words leading-snug">{item.row.companyName}</span>
                                             ) : (
-                                                <span className="inline-flex items-center gap-1">
+                                                <span className={`flex items-start gap-1 ${item.type === "company-child" ? "pl-4" : ""}`}>
                                                     {hasCases ? (
                                                         <button
                                                             type="button"
@@ -294,9 +360,9 @@ export default function CompaniesYieldTableClient({ yields, companyId, groups = 
                                                     )}
                                                     <Link
                                                         href={`/applicants?companyId=${item.row.companyId}`}
-                                                        className="text-primary hover:underline"
+                                                        className="text-primary hover:underline whitespace-normal break-words leading-snug"
                                                     >
-                                                        {item.row.companyName}
+                                                        {item.type === "company-child" ? item.branchLabel : item.row.companyName}
                                                     </Link>
                                                     {sheetMap[item.row.companyId] && (
                                                         <a
@@ -318,13 +384,13 @@ export default function CompaniesYieldTableClient({ yields, companyId, groups = 
                                             </td>
                                         ))}
                                     </tr>
-                                    {hasCases && isExpanded && caseRows.map((caseRow) => (
+                                    {hasCases && isExpanded && caseRows.map((caseRow, caseIndex) => (
                                         <tr
-                                            key={`case-${item.row.companyId}-${caseRow.caseName}`}
+                                            key={`case-${item.row.companyId}-${caseRow.caseName}-${caseIndex}`}
                                             className="border-b border-border/30 bg-sky-50/40 hover:bg-sky-50/70"
                                         >
-                                            <td className="py-1.5 sticky left-0 z-10 bg-sky-50/60 backdrop-blur min-w-[220px] border-r border-border/30">
-                                                <span className="inline-flex items-center gap-1.5 pl-8 pr-2">
+                                            <td className="py-1.5 sticky left-0 z-10 bg-sky-50/60 backdrop-blur min-w-[180px] max-w-[210px] border-r border-border/30">
+                                                <span className={`inline-flex items-center gap-1.5 pr-2 ${caseIndentClass}`}>
                                                     <span className="text-[11px] font-medium text-sky-700 bg-sky-100 rounded px-1.5 py-0.5 max-w-[160px] truncate" title={caseRow.caseName}>
                                                         {caseRow.caseName}
                                                     </span>
@@ -337,7 +403,7 @@ export default function CompaniesYieldTableClient({ yields, companyId, groups = 
                                             ))}
                                         </tr>
                                     ))}
-                                </>
+                                </Fragment>
                             )
                         })}
                     </tbody>
@@ -416,6 +482,49 @@ function createSummaryRow(rows: CompanyYieldRow[], companyName: string): Company
     total.validApplicantRate = toRate(total.validApplicants, total.uniqueApplicants)
 
     return total
+}
+
+function splitCompanyName(companyName: string) {
+    const normalized = companyName
+        .replace(/　/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+
+    const corporatePrefixPattern = /^(株式会社|有限会社|合同会社|合名会社|合資会社|（株）|\(株\)|㈱)\s*/
+    const stripCorporatePrefix = (value: string) => value.replace(corporatePrefixPattern, "").trim()
+
+    const bracketMatch = normalized.match(/^(.*?)[\s]*[（(]\s*(.+?)\s*[）)]$/)
+    if (bracketMatch) {
+        const baseName = stripCorporatePrefix(bracketMatch[1].trim())
+        const branchName = bracketMatch[2].trim()
+        return {
+            baseName: baseName || normalized,
+            branchName: branchName || null,
+        }
+    }
+
+    const spaceIndex = normalized.indexOf(" ")
+    if (spaceIndex > 0) {
+        const firstToken = normalized.slice(0, spaceIndex).trim()
+        const branchName = normalized.slice(spaceIndex + 1).trim()
+        if (corporatePrefixPattern.test(firstToken)) {
+            const baseName = stripCorporatePrefix(normalized)
+            return {
+                baseName: baseName || normalized,
+                branchName: null,
+            }
+        }
+        const baseName = stripCorporatePrefix(firstToken)
+        return {
+            baseName: baseName || normalized,
+            branchName: branchName || null,
+        }
+    }
+
+    return {
+        baseName: stripCorporatePrefix(normalized) || normalized,
+        branchName: null,
+    }
 }
 
 function toRate(numerator: number, denominator: number) {

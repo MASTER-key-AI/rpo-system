@@ -1,36 +1,91 @@
-import { getApplicantAppliedYears, getCompanyMonthlyTotals, getCompanyYields, getCompanyCaseYields } from "@/lib/actions/yields"
-import { getCompanyGroupsWithMembers } from "@/lib/actions/groups"
+import { getApplicantAppliedYears, getCompanyMonthlyTotals, getCompanyMonthlyWeeklyTotals, getCompanyYields, getCompanyCaseYields } from "@/lib/actions/yields"
 import { getCompanySheetMap } from "@/lib/actions/sheets"
 import { getCompanyCaseTargetHistory } from "@/lib/actions/analysis"
-import { Building2, CalendarDays, Download, Filter, Settings2 } from "lucide-react"
+import { getCompanyYieldCustomDateRange } from "@/lib/company-yield-period"
+import { Building2 } from "lucide-react"
 import CompaniesYieldTableClient from "./CompaniesYieldTableClient"
 import CompaniesMonthlyTotalsClient from "./CompaniesMonthlyTotalsClient"
+import CompaniesYieldFilterFormClient from "./CompaniesYieldFilterFormClient"
+import CompaniesMonthlyFilterFormClient from "./CompaniesMonthlyFilterFormClient"
 import CompanyContextBar from "@/components/CompanyContextBar"
 import SupportPeriodHistory from "./SupportPeriodHistory"
 import Link from "next/link"
 
+type SearchParamValue = string | string[] | undefined
+
+function getLastParam(value: SearchParamValue) {
+    if (Array.isArray(value)) return value[value.length - 1]
+    return value
+}
+
+function getDisplayedPeriodLabel({
+    startDate,
+    endDate,
+    year,
+    month,
+    week,
+}: {
+    startDate?: string
+    endDate?: string
+    year?: number
+    month?: number
+    week?: number
+}) {
+    if (startDate && endDate) return `${startDate} 〜 ${endDate}`
+    if (startDate) return `${startDate} 以降`
+    if (endDate) return `${endDate} まで`
+    if (year && month && week) return `${year}年${month}月 第${week}週`
+    if (year && month) return `${year}年${month}月`
+    if (month && week) return `${month}月 第${week}週（全期間対象）`
+    if (year) return `${year}年`
+    if (month) return `${month}月（全期間対象）`
+    return "全期間"
+}
+
 export default async function CompaniesYieldPage({
     searchParams,
 }: {
-    searchParams: Promise<{ year?: string, month?: string, dateType?: string, view?: string, companyId?: string }>
+    searchParams: Promise<Record<string, SearchParamValue>>
 }) {
     const params = await searchParams
-    const view = params.view === "monthly" ? "monthly" : "company"
-    const dateType = (params.dateType || "applied") as "applied" | "event"
-    const parsedYear = Number.parseInt(params.year || "", 10)
-    const parsedMonth = Number.parseInt(params.month || "", 10)
+    const view = getLastParam(params.view) === "monthly" ? "monthly" : "company"
+    const dateType = (getLastParam(params.dateType) || "applied") as "applied" | "event"
+    const customDateRange = getCompanyYieldCustomDateRange(getLastParam(params.startDate), getLastParam(params.endDate))
+    const periodStartAt = customDateRange.startAt
+    const periodEndAt = customDateRange.endAt
+    const parsedYear = Number.parseInt(getLastParam(params.year) || "", 10)
+    const parsedMonth = Number.parseInt(getLastParam(params.month) || "", 10)
+    const parsedWeek = Number.parseInt(getLastParam(params.week) || "", 10)
     const year = Number.isInteger(parsedYear) ? parsedYear : undefined
     const month = Number.isInteger(parsedMonth) && parsedMonth >= 1 && parsedMonth <= 12 ? parsedMonth : undefined
-    const companyId = params.companyId?.trim() || undefined
+    const week = Number.isInteger(parsedWeek) && parsedWeek >= 1 && parsedWeek <= 5 ? parsedWeek : undefined
+    const companyId = getLastParam(params.companyId)?.trim() || undefined
+    const displayedPeriodLabel = getDisplayedPeriodLabel({
+        startDate: customDateRange.startDate,
+        endDate: customDateRange.endDate,
+        year,
+        month,
+        week,
+    })
 
     const availableYears = await getApplicantAppliedYears()
     const monthOptions = Array.from({ length: 12 }, (_, index) => index + 1)
+    const weekOptions = Array.from({ length: 5 }, (_, index) => index + 1)
 
     if (view === "monthly") {
-        const monthlyRows = await getCompanyMonthlyTotals(year)
+        const [monthlyRows, weeklyRows] = await Promise.all([
+            getCompanyMonthlyTotals(year, { month, week, periodStartAt, periodEndAt }),
+            getCompanyMonthlyWeeklyTotals(year, { month, week, periodStartAt, periodEndAt }),
+        ])
         const monthlyCsvParams = new URLSearchParams()
-        if (year) monthlyCsvParams.set("year", String(year))
-        if (month) monthlyCsvParams.set("month", String(month))
+        if (customDateRange.hasCustomRange) {
+            if (customDateRange.startDate) monthlyCsvParams.set("startDate", customDateRange.startDate)
+            if (customDateRange.endDate) monthlyCsvParams.set("endDate", customDateRange.endDate)
+        } else {
+            if (year) monthlyCsvParams.set("year", String(year))
+            if (month) monthlyCsvParams.set("month", String(month))
+            if (week && month) monthlyCsvParams.set("week", String(week))
+        }
         const monthlyCsvExportHref = `/api/companies/monthly-yields/csv${monthlyCsvParams.toString() ? `?${monthlyCsvParams.toString()}` : ""}`
         return (
             <div className="space-y-6">
@@ -53,75 +108,36 @@ export default async function CompaniesYieldPage({
                             企業別
                         </Link>
                         <span className="h-7 px-3 rounded-md bg-background text-foreground text-[12px] font-medium inline-flex items-center" style={{ boxShadow: "var(--shadow-soft)" }}>
-                            月別累計
+                            KPIサマリー
                         </span>
                     </div>
                 </div>
 
-                <form method="GET" className="flex flex-wrap items-center gap-2 bg-card p-2 rounded-xl border border-border w-fit" style={{ boxShadow: "var(--shadow-soft)" }}>
-                    <input type="hidden" name="view" value="monthly" />
-                    <div className="h-8 px-3 rounded-lg bg-muted/40 text-[12px] font-medium text-muted-foreground inline-flex items-center gap-2">
-                        <CalendarDays className="w-3.5 h-3.5" />
-                        フィルタ
-                    </div>
-                    <select
-                        name="year"
-                        defaultValue={year ? String(year) : ""}
-                        className="text-[13px] bg-transparent border-none focus:ring-0 text-foreground font-medium cursor-pointer"
-                    >
-                        <option value="">全ての年</option>
-                        {availableYears.map((optionYear) => (
-                            <option key={optionYear} value={optionYear}>
-                                {optionYear}年
-                            </option>
-                        ))}
-                    </select>
-                    <span className="mx-0.5 text-muted-foreground text-xs">/</span>
-                    <select
-                        name="month"
-                        defaultValue={month ? String(month) : ""}
-                        className="text-[13px] bg-transparent border-none focus:ring-0 text-foreground font-medium cursor-pointer"
-                    >
-                        <option value="">全ての月</option>
-                        {monthOptions.map((optionMonth) => (
-                            <option key={optionMonth} value={optionMonth}>
-                                {optionMonth}月
-                            </option>
-                        ))}
-                    </select>
-                    <button
-                        type="submit"
-                        className="h-8 px-3 rounded-lg bg-primary text-primary-foreground text-[12px] font-medium hover:bg-primary/90 transition-colors duration-150 cursor-pointer"
-                    >
-                        絞り込み
-                    </button>
-                    <a
-                        href={monthlyCsvExportHref}
-                        className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-input text-foreground text-[12px] font-medium hover:bg-muted transition-colors duration-150 cursor-pointer"
-                    >
-                        <Download className="w-3.5 h-3.5" />
-                        CSVエクスポート
-                    </a>
-                    {(year || month) && (
-                        <Link
-                            href="/companies?view=monthly"
-                            className="h-8 px-3 rounded-md border border-input text-xs font-medium hover:bg-muted transition-colors"
-                        >
-                            リセット
-                        </Link>
-                    )}
-                </form>
+                <CompaniesMonthlyFilterFormClient
+                    startDate={customDateRange.startDate}
+                    endDate={customDateRange.endDate}
+                    year={year}
+                    month={month}
+                    week={week}
+                    availableYears={availableYears}
+                    monthOptions={monthOptions}
+                    weekOptions={weekOptions}
+                    csvExportHref={monthlyCsvExportHref}
+                />
 
-                <CompaniesMonthlyTotalsClient rows={monthlyRows} year={year} month={month} />
+                <p className="text-xs text-muted-foreground -mt-3">
+                    現在の表示期間: <span className="font-medium text-foreground">{displayedPeriodLabel}</span>
+                </p>
+
+                <CompaniesMonthlyTotalsClient rows={monthlyRows} weeklyRows={weeklyRows} year={year} month={month} />
             </div>
         )
     }
 
-    const [yields, groupsWithMembers, sheetMap, caseYields] = await Promise.all([
-        getCompanyYields(year, month, dateType, { companyId }),
-        getCompanyGroupsWithMembers(),
+    const [yields, sheetMap, caseYields] = await Promise.all([
+        getCompanyYields(year, month, dateType, { companyId, week, periodStartAt, periodEndAt }),
         getCompanySheetMap(),
-        getCompanyCaseYields(year, month, dateType, { companyId }),
+        getCompanyCaseYields(year, month, dateType, { companyId, week, periodStartAt, periodEndAt }),
     ])
     let caseTargetHistory: Awaited<ReturnType<typeof getCompanyCaseTargetHistory>> = []
     if (companyId) {
@@ -138,8 +154,14 @@ export default async function CompaniesYieldPage({
 
     const csvParams = new URLSearchParams()
     csvParams.set("dateType", dateType)
-    if (year) csvParams.set("year", String(year))
-    if (month) csvParams.set("month", String(month))
+    if (customDateRange.hasCustomRange) {
+        if (customDateRange.startDate) csvParams.set("startDate", customDateRange.startDate)
+        if (customDateRange.endDate) csvParams.set("endDate", customDateRange.endDate)
+    } else {
+        if (year) csvParams.set("year", String(year))
+        if (month) csvParams.set("month", String(month))
+        if (week) csvParams.set("week", String(week))
+    }
     if (companyId) csvParams.set("companyId", companyId)
     const csvExportHref = `/api/companies/yields/csv?${csvParams.toString()}`
 
@@ -162,69 +184,28 @@ export default async function CompaniesYieldPage({
                         href={`/companies?view=monthly${year ? `&year=${year}` : ""}`}
                         className="h-7 px-3 rounded-md text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-background transition-all duration-150 inline-flex items-center cursor-pointer"
                     >
-                        月別累計
+                        KPIサマリー
                     </Link>
                 </div>
             </div>
 
-            <form method="GET" className="flex items-center gap-3 bg-card p-2 rounded-xl border border-border" style={{ boxShadow: "var(--shadow-soft)" }}>
-                <Filter className="w-3.5 h-3.5 text-muted-foreground ml-2" />
-                <input type="hidden" name="view" value="company" />
-                {companyId ? <input type="hidden" name="companyId" value={companyId} /> : null}
-                <select
-                    name="dateType"
-                    defaultValue={dateType}
-                    className="text-[13px] bg-transparent border-none focus:ring-0 text-foreground font-medium cursor-pointer"
-                >
-                    <option value="applied">応募日起点</option>
-                    <option value="event">発生日起点</option>
-                </select>
-                <div className="w-px h-4 bg-border mx-1"></div>
-                <select
-                    name="year"
-                    defaultValue={year ? String(year) : ""}
-                    className="text-[13px] bg-transparent border-none focus:ring-0 text-foreground font-medium cursor-pointer"
-                >
-                    <option value="">全ての年</option>
-                    {availableYears.map((optionYear) => (
-                        <option key={optionYear} value={optionYear}>
-                            {optionYear}年
-                        </option>
-                    ))}
-                </select>
-                <select
-                    name="month"
-                    defaultValue={month ? String(month) : ""}
-                    className="text-[13px] bg-transparent border-none focus:ring-0 text-foreground font-medium cursor-pointer"
-                >
-                    <option value="">全ての月</option>
-                    {monthOptions.map((optionMonth) => (
-                        <option key={optionMonth} value={optionMonth}>
-                            {optionMonth}月
-                        </option>
-                    ))}
-                </select>
-                <button
-                    type="submit"
-                    className="h-8 px-3 rounded-lg bg-primary text-primary-foreground text-[12px] font-medium hover:bg-primary/90 transition-colors duration-150 cursor-pointer"
-                >
-                    絞り込み
-                </button>
-                <a
-                    href={csvExportHref}
-                    className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-input text-foreground text-[12px] font-medium hover:bg-muted transition-colors duration-150 cursor-pointer"
-                >
-                    <Download className="w-3.5 h-3.5" />
-                    CSVエクスポート
-                </a>
-                <Link
-                    href="/companies/manage"
-                    className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-sky-500 text-white text-[12px] font-medium hover:bg-sky-600 transition-colors duration-150 cursor-pointer"
-                >
-                    <Settings2 className="w-3.5 h-3.5" />
-                    企業グループ管理
-                </Link>
-            </form>
+            <CompaniesYieldFilterFormClient
+                dateType={dateType}
+                startDate={customDateRange.startDate}
+                endDate={customDateRange.endDate}
+                year={year}
+                month={month}
+                week={week}
+                companyId={companyId}
+                availableYears={availableYears}
+                monthOptions={monthOptions}
+                weekOptions={weekOptions}
+                csvExportHref={csvExportHref}
+            />
+
+            <p className="text-xs text-muted-foreground -mt-3">
+                現在の表示期間: <span className="font-medium text-foreground">{displayedPeriodLabel}</span>
+            </p>
 
             {companyId && yields.length > 0 && (
                 <CompanyContextBar
@@ -239,7 +220,7 @@ export default async function CompaniesYieldPage({
                 <SupportPeriodHistory history={caseTargetHistory} />
             )}
 
-            <CompaniesYieldTableClient yields={yields} companyId={companyId} groups={groupsWithMembers} sheetMap={sheetMap} caseYields={caseYields} />
+            <CompaniesYieldTableClient yields={yields} companyId={companyId} sheetMap={sheetMap} caseYields={caseYields} />
         </div>
     )
 }

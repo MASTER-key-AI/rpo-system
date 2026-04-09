@@ -28,6 +28,7 @@ type Applicant = {
     notes: string | null
     connectedAt: string | number | Date | null
     nextActionDate: string | number | Date | null
+    nextActionContent: string | null
     primaryScheduledDate: string | number | Date | null
     primaryConductedDate: string | number | Date | null
     primaryConducted: boolean | null
@@ -171,7 +172,7 @@ export default function ApplicantsTableClient({ applicants, sheetMap = {}, caseO
     if (rows.length === 0) {
         return (
             <tr>
-                <td colSpan={23} className="px-6 py-16 text-center text-muted-foreground">
+                <td colSpan={24} className="px-6 py-16 text-center text-muted-foreground">
                     応募者が登録されていません
                 </td>
             </tr>
@@ -197,15 +198,15 @@ export default function ApplicantsTableClient({ applicants, sheetMap = {}, caseO
                         <td className={`px-3 py-2 whitespace-nowrap text-sm left-0 min-w-[110px] ${stickyBase}`}>
                             {toInputDateValue(row.appliedAt) || "-"}
                         </td>
-                        {/* B: 会社名 (sticky) */}
-                        <td className={`px-3 py-2 whitespace-nowrap text-sm left-[110px] min-w-[140px] ${stickyBase}`}>
+                        {/* B: 会社名 */}
+                        <td className="px-3 py-2 whitespace-nowrap text-sm min-w-[140px]">
                             <CompanyNameWithSheetLink
                                 companyName={row.companyName}
                                 sheetEntry={sheetMap[row.companyId]}
                             />
                         </td>
-                        {/* C: 案件名 (sticky) */}
-                        <td className={`px-3 py-2 left-[250px] min-w-[140px] ${stickyBase}`}>
+                        {/* C: 案件名 */}
+                        <td className="px-3 py-2 min-w-[140px]">
                             {(() => {
                                 const opts = caseOptions[row.companyId] ?? []
                                 if (opts.length > 0) {
@@ -247,7 +248,7 @@ export default function ApplicantsTableClient({ applicants, sheetMap = {}, caseO
                             })()}
                         </td>
                         {/* D: 氏名 (sticky) */}
-                        <td className={`px-3 py-2 left-[390px] min-w-[180px] border-r border-border/50 ${stickyBase}`}>
+                        <td className={`px-3 py-2 left-[110px] min-w-[180px] border-r border-border/50 ${stickyBase}`}>
                             <div className="flex flex-col gap-1">
                                 {isResponseEmpty && (
                                     <span className="inline-flex w-fit items-center rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
@@ -473,7 +474,23 @@ export default function ApplicantsTableClient({ applicants, sheetMap = {}, caseO
                                 className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring/40 transition-colors duration-150"
                             />
                         </td>
-                        {/* Q: 通電日 */}
+                        {/* Q: アクション内容 */}
+                        <td className="px-3 py-2 min-w-[220px]">
+                            <input
+                                defaultValue={row.nextActionContent ?? ""}
+                                onBlur={(event) => {
+                                    const next = event.currentTarget.value.trim() || null
+                                    updateRow(
+                                        row.id,
+                                        { nextActionContent: next },
+                                        { nextActionContent: next },
+                                    )
+                                }}
+                                disabled={isRowPending}
+                                className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring/40 transition-colors duration-150"
+                            />
+                        </td>
+                        {/* R: 通電日 */}
                         <td className="px-3 py-2 min-w-[150px]">
                             <input
                                 type="date"
@@ -486,7 +503,7 @@ export default function ApplicantsTableClient({ applicants, sheetMap = {}, caseO
                                 className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring/40 transition-colors duration-150"
                             />
                         </td>
-                        {/* R: 面接予定日 */}
+                        {/* S: 面接予定日 */}
                         <td className="px-3 py-2 min-w-[150px]">
                             <input
                                 type="date"
@@ -499,7 +516,7 @@ export default function ApplicantsTableClient({ applicants, sheetMap = {}, caseO
                                 className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring/40 transition-colors duration-150"
                             />
                         </td>
-                        {/* S: 実施可否 */}
+                        {/* T: 実施可否 */}
                         <td className="px-3 py-2 min-w-[80px] text-center">
                             <input
                                 type="checkbox"
@@ -512,7 +529,7 @@ export default function ApplicantsTableClient({ applicants, sheetMap = {}, caseO
                                 className="h-4 w-4 accent-primary"
                             />
                         </td>
-                        {/* T: 二次/最終面接予定日 */}
+                        {/* U: 二次/最終面接予定日 */}
                         <td className="px-3 py-2 min-w-[150px]">
                             <input
                                 type="date"
@@ -525,7 +542,7 @@ export default function ApplicantsTableClient({ applicants, sheetMap = {}, caseO
                                 className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring/40 transition-colors duration-150"
                             />
                         </td>
-                        {/* U: 二次/最終実施可否 */}
+                        {/* V: 二次/最終実施可否 */}
                         <td className="px-3 py-2 min-w-[80px] text-center">
                             <input
                                 type="checkbox"
@@ -538,7 +555,7 @@ export default function ApplicantsTableClient({ applicants, sheetMap = {}, caseO
                                 className="h-4 w-4 accent-primary"
                             />
                         </td>
-                        {/* V: 内定可否 */}
+                        {/* W: 内定可否 */}
                         <td className="px-3 py-2 min-w-[120px]">
                             <select
                                 value={row.offered === true ? "1" : row.offered === null ? "0" : ""}
@@ -553,9 +570,9 @@ export default function ApplicantsTableClient({ applicants, sheetMap = {}, caseO
                                 <option value="">選択してください</option>
                                 <option value="1">内定</option>
                                 <option value="0">見送り</option>
-                            </select>
+                                </select>
                         </td>
-                        {/* W: 入社日 */}
+                        {/* X: 入社日 */}
                         <td className="px-3 py-2 min-w-[150px]">
                             <input
                                 type="date"

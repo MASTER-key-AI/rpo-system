@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS company_case_options (
 -- 初期データ: Excelの職種別シートより
 -- 企業名は normalize("NFKC") + spaces trimmed で正規化済み
 INSERT OR IGNORE INTO company_case_options (id, company_id, case_name, display_order)
-SELECT lower(hex(randomblob(8))), c.id, v.case_name, v.ord
+SELECT lower(hex(randomblob(8))), c.id, v.column2, v.column3
 FROM company c
 JOIN (VALUES
   ('大阪機器工作所','営業',0),
@@ -83,5 +83,5 @@ JOIN (VALUES
   ('株式会社ULC','役員候補',0),
   ('株式会社ULC','事務',1),
   ('株式会社ULC','現場作業員',2)
-) AS v(company_name, case_name, ord)
-ON c.name = v.company_name;
+) AS v
+ON c.name = v.column1;

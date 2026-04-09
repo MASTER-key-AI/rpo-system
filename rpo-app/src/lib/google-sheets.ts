@@ -17,6 +17,32 @@ type SheetProperties = {
     title: string
 }
 
+async function grantAnyoneWithLinkReadPermission(
+    token: string,
+    spreadsheetId: string,
+): Promise<void> {
+    const response = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${spreadsheetId}/permissions?supportsAllDrives=true&sendNotificationEmail=false`,
+        {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                type: "anyone",
+                role: "reader",
+                allowFileDiscovery: false,
+            }),
+        },
+    )
+
+    if (!response.ok) {
+        const text = await response.text()
+        throw new Error(`Failed to set link-sharing permission: ${response.status} ${text}`)
+    }
+}
+
 async function renameSheetTitle(
     token: string,
     spreadsheetId: string,
@@ -109,6 +135,9 @@ export async function copyTemplateSpreadsheet(companyName: string): Promise<Copy
     if (targetSheet.title !== TARGET_SHEET_TITLE) {
         await renameSheetTitle(token, spreadsheetId, gid, TARGET_SHEET_TITLE)
     }
+
+    // 4. Enable "Anyone with the link can view".
+    await grantAnyoneWithLinkReadPermission(token, spreadsheetId)
 
     return {
         spreadsheetId,
